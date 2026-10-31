@@ -1,1 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isPlatformAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /admins/{adminUid} {
+      allow read: if isSignedIn() && request.auth.uid == adminUid;
+      allow write: if false;
+    }
+
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (request.auth.uid == userId || isPlatformAdmin());
+
+      match /sessions/{sessionId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /conversations/{chatId} {
+      allow create: if isSignedIn() && request.auth.uid in request.resource.data.participants;
+      allow read, update: if isSignedIn() && (request.auth.uid in resource.data.participants || isPlatformAdmin());
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(chatId)).data.participants;
+        allow create: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(chatId)).data.participants
+          && request.resource.data.senderId == request.auth.uid;
+        allow update: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(chatId)).data.participants;
+      }
+    }
+
+    match /calls/{callId} {
+      allow create: if isSignedIn() && request.resource.data.callerId == request.auth.uid;
+      allow read, update: if isSignedIn() && (resource.data.callerId == request.auth.uid || resource.data.calleeId == request.auth.uid);
+
+      match /offerCandidates/{id} {
+        allow read, write: if isSignedIn();
+      }
+      match /answerCandidates/{id} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    match /statuses/{statusId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isSignedIn();
+    }
+  }
+}
 
