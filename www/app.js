@@ -4,6 +4,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   GithubAuthProvider,
   sendPasswordResetEmail,
@@ -20,6 +22,7 @@ import {
   getDoc,
   getDocs,
   updateDoc,
+  deleteDoc,
   collection,
   addDoc,
   query,
@@ -40,7 +43,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // ============================================================================
-// 1. PRE-CONFIGURED FIREBASE, CLOUDINARY & GITHUB SETTINGS
+// 1. FIREBASE, CLOUDINARY & GITHUB CONFIGURATION
 // ============================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyAb6XQuA5QqqoglYSvtQ-cjpOuuV3s_vwo",
@@ -62,36 +65,10 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const rtdb = getDatabase(app);
 
-setPersistence(auth, browserLocalPersistence);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
 
 // ============================================================================
-// 2. CLOUDINARY MEDIA UPLOAD ENGINE
-// ============================================================================
-async function uploadToCloudinary(fileOrBlob, folderName = "nexchat_pro", customFileName = null) {
-  const formData = new FormData();
-  if (customFileName && !(fileOrBlob instanceof File)) {
-    formData.append("file", fileOrBlob, customFileName);
-  } else {
-    formData.append("file", fileOrBlob);
-  }
-  formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-  formData.append("folder", folderName);
-
-  const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    body: formData
-  });
-
-  const data = await response.json();
-  if (!response.ok || !data.secure_url) {
-    throw new Error(data.error?.message || "Cloudinary upload failed");
-  }
-  return data.secure_url;
-}
-
-// ============================================================================
-// 3. GLOBAL APPLICATION STATE & UI INITIALIZATION (DOM LOADED SAFE)
+// 2. GLOBAL APPLICATION STATE
 // ============================================================================
 let currentUser = null;
 let currentUserProfile = null;
@@ -113,53 +90,101 @@ let remoteStream = null;
 let currentCallId = null;
 let currentFacingMode = "user";
 let callTimerInterval = null;
+let isMicMuted = false;
+let isCamOff = false;
 
 const rtcConfig = {
-  iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }]
+  iceServers: [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
+  ]
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-  // Tab Switching Logic
+// ============================================================================
+// 3. CLOUDINARY UPLOAD HELPER
+// ============================================================================
+async function uploadToCloudinary(fileOrBlob, folderName = "nexchat_pro", customFileName = null) {
+  const formData = new FormData();
+  if (customFileName && !(fileOrBlob instanceof File)) {
+    formData.append("file", fileOrBlob, customFileName);
+  } else {
+    formData.append("file", fileOrBlob);
+  }
+  formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+  formData.append("folder", folderName);
+
+  const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
+  const response = await fetch(endpoint, { method: "POST", body: formData });
+  const data = await response.json();
+
+  if (!response.ok || !data.secure_url) {
+    throw new Error(data.error?.message || "মিডিয়া আপলোড ব্যর্থ হয়েছে");
+  }
+  return data.secure_url;
+}
+
+// ============================================================================
+// 4. RELIABLE ALERT & TAB SWITCHER (RUNS IMMEDIATELY WITHOUT WAITING)
+// ============================================================================
+function showAlert(msg, isError = true) {
+  let el = document.getElementById("auth-alert");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "auth-alert";
+    const formContainer = document.getElementById("login-form")?.parentElement || document.body;
+    formContainer.prepend(el);
+  }
+  el.textContent = msg;
+  el.className = `mb-4 p-3 rounded-lg text-xs font-semibold border ${
+    isError
+      ? "bg-red-100 text-red-700 border-red-300"
+      : "bg-emerald-100 text-emerald-800 border-emerald-300"
+  }`;
+  el.classList.remove("hidden");
+}
+
+function switchAuthTab(mode) {
   const tabLogin = document.getElementById("tab-login");
   const tabRegister = document.getElementById("tab-register");
   const loginForm = document.getElementById("login-form");
   const registerForm = document.getElementById("register-form");
+  const alertBox = document.getElementById("auth-alert");
+  if (alertBox) alertBox.classList.add("hidden");
 
-  if (tabLogin && tabRegister && loginForm && registerForm) {
-    tabLogin.addEventListener("click", () => {
-      loginForm.classList.remove("hidden");
-      registerForm.classList.add("hidden");
-      tabLogin.classList.add("border-blue-900", "text-blue-950", "bg-white");
-      tabRegister.classList.remove("border-blue-900", "text-blue-950", "bg-white");
-    });
-
-    tabRegister.addEventListener("click", () => {
-      registerForm.classList.remove("hidden");
-      loginForm.classList.add("hidden");
-      tabRegister.classList.add("border-blue-900", "text-blue-950", "bg-white");
-      tabLogin.classList.remove("border-blue-900", "text-blue-950", "bg-white");
-    });
+  if (mode === "register") {
+    loginForm?.classList.add("hidden");
+    registerForm?.classList.remove("hidden");
+    tabRegister?.classList.add("border-blue-900", "text-blue-950", "bg-white", "border-b-2");
+    tabLogin?.classList.remove("border-blue-900", "text-blue-950", "bg-white", "border-b-2");
+  } else {
+    registerForm?.classList.add("hidden");
+    loginForm?.classList.remove("hidden");
+    tabLogin?.classList.add("border-blue-900", "text-blue-950", "bg-white", "border-b-2");
+    tabRegister?.classList.remove("border-blue-900", "text-blue-950", "bg-white", "border-b-2");
   }
+}
 
-  // Password Visibility Toggles
-  document.querySelectorAll(".toggle-password").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const input = document.getElementById(btn.dataset.target);
-      if (input) input.type = input.type === "password" ? "text" : "password";
-    });
+window.switchAuthTab = switchAuthTab;
+
+function initImmediateUI() {
+  // Turn off browser autofill interference on all inputs
+  document.querySelectorAll("input, form").forEach(el => {
+    el.setAttribute("autocomplete", "off");
   });
 
-  fetchLatestGithubApk();
-});
+  const tabLogin = document.getElementById("tab-login");
+  const tabRegister = document.getElementById("tab-register");
 
-function showAlert(msg, isError = true) {
-  const el = document.getElementById("auth-alert");
-  if (!el) return;
-  el.textContent = msg;
-  el.className = `mb-4 p-3 rounded-lg text-xs font-medium ${
-    isError ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-800"
-  }`;
-  el.classList.remove("hidden");
+  if (tabLogin) tabLogin.onclick = () => switchAuthTab("login");
+  if (tabRegister) tabRegister.onclick = () => switchAuthTab("register");
+
+  fetchLatestGithubApk();
+}
+
+// Run immediately if DOM is already ready, otherwise on DOMContentLoaded
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initImmediateUI);
+} else {
+  initImmediateUI();
 }
 
 async function fetchLatestGithubApk() {
@@ -180,30 +205,169 @@ async function fetchLatestGithubApk() {
 }
 
 // ============================================================================
-// 4. AUTHENTICATION & REGISTRATION
+// 5. GLOBAL CLICK & SUBMIT DELEGATION (WORKS EVEN IF ICONS/SPANS ARE CLICKED)
+// ============================================================================
+document.addEventListener("click", async e => {
+  // 1. Auth Tabs Fallback (by ID or button text)
+  const clickedLoginTab = e.target.closest("#tab-login") || (e.target.closest("button")?.textContent.trim() === "Sign In" && !e.target.closest("form"));
+  const clickedRegisterTab = e.target.closest("#tab-register") || (e.target.closest("button")?.textContent.trim() === "Create Account" && !e.target.closest("form"));
+
+  if (clickedLoginTab) {
+    e.preventDefault();
+    switchAuthTab("login");
+    return;
+  }
+  if (clickedRegisterTab) {
+    e.preventDefault();
+    switchAuthTab("register");
+    return;
+  }
+
+  // 2. Password visibility toggle
+  const toggleBtn = e.target.closest(".toggle-password");
+  if (toggleBtn) {
+    const input = document.getElementById(toggleBtn.dataset.target);
+    if (input) input.type = input.type === "password" ? "text" : "password";
+    return;
+  }
+
+  // 3. Forgot Password
+  if (e.target.closest("#forgot-password-btn")) {
+    e.preventDefault();
+    const email = document.getElementById("login-email")?.value.trim();
+    if (!email) return showAlert("পাসওয়ার্ড রিসেট করতে আগে ইমেইল বক্সে আপনার ইমেইল লিখুন।");
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showAlert("পাসওয়ার্ড রিসেট লিংক আপনার ইমেইলে পাঠানো হয়েছে!", false);
+    } catch (err) {
+      showAlert(err.message);
+    }
+    return;
+  }
+
+  // 4. Google & GitHub OAuth Login
+  if (e.target.closest("#google-login-btn")) {
+    e.preventDefault();
+    handleOAuthLogin(new GoogleAuthProvider());
+    return;
+  }
+  if (e.target.closest("#github-login-btn")) {
+    e.preventDefault();
+    handleOAuthLogin(new GithubAuthProvider());
+    return;
+  }
+
+  // 5. Logout
+  if (e.target.closest("#logout-btn")) {
+    e.preventDefault();
+    if (currentUser) {
+      await rtdbSet(rtdbRef(rtdb, `status/${currentUser.uid}`), {
+        state: "offline",
+        lastChanged: rtdbTimestamp()
+      }).catch(() => {});
+    }
+    await signOut(auth);
+    location.reload();
+    return;
+  }
+
+  // 6. Back to Conversation List on Mobile
+  if (e.target.closest("#back-to-list-btn")) {
+    document.getElementById("chat-panel")?.classList.add("hidden");
+    return;
+  }
+
+  // 7. Cancel Reply
+  if (e.target.closest("#cancel-reply-btn")) {
+    replyToMessage = null;
+    document.getElementById("reply-preview-bar")?.classList.add("hidden");
+    return;
+  }
+
+  // 8. Attach Media in Chat
+  if (e.target.closest("#attach-file-btn")) {
+    document.getElementById("chat-file-input")?.click();
+    return;
+  }
+
+  // 9. Voice & Video Call Triggers
+  if (e.target.closest("#voice-call-btn")) {
+    startCall(false);
+    return;
+  }
+  if (e.target.closest("#video-call-btn")) {
+    startCall(true);
+    return;
+  }
+  if (e.target.closest("#accept-call-btn")) {
+    acceptIncomingCall();
+    return;
+  }
+  if (e.target.closest("#reject-call-btn") || e.target.closest("#end-call-btn")) {
+    endActiveCall();
+    return;
+  }
+  if (e.target.closest("#toggle-mic-btn")) {
+    toggleMicrophone();
+    return;
+  }
+  if (e.target.closest("#switch-cam-btn")) {
+    switchCameraFacing();
+    return;
+  }
+
+  // 10. Add Status Trigger
+  if (e.target.closest("#add-status-btn")) {
+    document.getElementById("status-file-input")?.click();
+    return;
+  }
+
+  // 11. Create Group Trigger
+  if (e.target.closest("#create-group-btn")) {
+    createNewGroupPrompt();
+    return;
+  }
+});
+
+// ============================================================================
+// 6. FORM SUBMISSIONS (LOGIN, REGISTER, SEND MESSAGE)
 // ============================================================================
 document.addEventListener("submit", async e => {
+  // REGISTRATION FORM
   if (e.target && e.target.id === "register-form") {
     e.preventDefault();
-    const displayName = document.getElementById("reg-name").value.trim();
-    const username = document.getElementById("reg-username").value.trim().toLowerCase();
-    const phone = document.getElementById("reg-phone").value.trim();
-    const email = document.getElementById("reg-email").value.trim();
-    const password = document.getElementById("reg-password").value;
-    const avatarFile = document.getElementById("reg-avatar").files[0];
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn ? submitBtn.textContent : "Create Account";
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "অ্যাকাউন্ট তৈরি হচ্ছে...";
+    }
+
+    const displayName = (document.getElementById("reg-name")?.value || "User").trim();
+    const rawUsername = (document.getElementById("reg-username")?.value || "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+    const username = rawUsername || "user_" + Math.floor(1000 + Math.random() * 9000);
+    const phone = (document.getElementById("reg-phone")?.value || "").trim();
+    const email = (document.getElementById("reg-email")?.value || "").trim();
+    const password = document.getElementById("reg-password")?.value || "";
+    const avatarFile = document.getElementById("reg-avatar")?.files?.[0];
 
     try {
+      showAlert("অ্যাকাউন্ট ভেরিফাই করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...", false);
       const usernameRef = doc(db, "usernames", username);
       const usernameSnap = await getDoc(usernameRef);
       if (usernameSnap.exists()) {
-        return showAlert("Username @" + username + " is already taken. Choose another.");
+        throw new Error(`@${username} ইউজারনেমটি আগে থেকেই নেওয়া হয়েছে। অন্য নাম দিন।`);
       }
 
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       let photoURL = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=1e3a8a&color=fff`;
 
       if (avatarFile) {
-        photoURL = await uploadToCloudinary(avatarFile, `nexchat_pro/avatars/${cred.user.uid}`);
+        try {
+          photoURL = await uploadToCloudinary(avatarFile, `nexchat_pro/avatars/${cred.user.uid}`);
+        } catch (uploadErr) {
+          console.warn("Avatar upload skipped:", uploadErr);
+        }
       }
 
       await setDoc(usernameRef, { uid: cred.user.uid });
@@ -220,75 +384,104 @@ document.addEventListener("submit", async e => {
         createdAt: serverTimestamp()
       });
 
-      await sendEmailVerification(cred.user);
+      sendEmailVerification(cred.user).catch(() => {});
+      showAlert("সফলভাবে অ্যাকাউন্ট তৈরি হয়েছে!", false);
     } catch (err) {
       showAlert(err.message);
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+      }
     }
   }
 
+  // LOGIN FORM
   if (e.target && e.target.id === "login-form") {
     e.preventDefault();
-    const email = document.getElementById("login-email").value.trim();
-    const password = document.getElementById("login-password").value;
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn ? submitBtn.textContent : "Sign In";
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "লগইন হচ্ছে...";
+    }
+
+    const email = (document.getElementById("login-email")?.value || "").trim();
+    const password = document.getElementById("login-password")?.value || "";
+
     try {
+      showAlert("লগইন করা হচ্ছে, অপেক্ষা করুন...", false);
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
-      showAlert(err.message);
+      showAlert("ইমেইল বা পাসওয়ার্ড সঠিক নয়: " + err.message);
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+      }
     }
+  }
+
+  // CHAT MESSAGE FORM
+  if (e.target && (e.target.id === "message-form" || e.target.id === "send-message-form")) {
+    e.preventDefault();
+    const input = document.getElementById("message-input");
+    if (!input || !input.value.trim() || !activeChat) return;
+    const text = input.value.trim();
+    input.value = "";
+    await sendChatMessage({ text, type: "text" });
   }
 });
 
-document.addEventListener("click", async e => {
-  if (e.target && e.target.id === "forgot-password-btn") {
-    const email = document.getElementById("login-email")?.value.trim();
-    if (!email) return showAlert("Enter your email address first to reset password.");
-    try {
-      await sendPasswordResetEmail(auth, email);
-      showAlert("Password reset email sent! Check your inbox.", false);
-    } catch (err) {
-      showAlert(err.message);
-    }
-  }
-
-  if (e.target && e.target.id === "google-login-btn") handleOAuthLogin(new GoogleAuthProvider());
-  if (e.target && e.target.id === "github-login-btn") handleOAuthLogin(new GithubAuthProvider());
-  if (e.target && e.target.id === "logout-btn") {
-    if (currentUser) {
-      await rtdbSet(rtdbRef(rtdb, `status/${currentUser.uid}`), { state: "offline", lastChanged: rtdbTimestamp() });
-    }
-    await signOut(auth);
-    location.reload();
-  }
-});
-
-async function handleOAuthLogin(provider) {
-  try {
-    const cred = await signInWithPopup(auth, provider);
-    const uRef = doc(db, "users", cred.user.uid);
-    const snap = await getDoc(uRef);
-    if (!snap.exists()) {
-      const baseUsername = (cred.user.email?.split("@")[0] || "user") + "_" + Math.floor(100 + Math.random() * 900);
-      await setDoc(doc(db, "usernames", baseUsername.toLowerCase()), { uid: cred.user.uid });
-      await setDoc(uRef, {
-        uid: cred.user.uid,
-        displayName: cred.user.displayName || "NexChat User",
-        displayNameLower: (cred.user.displayName || "NexChat User").toLowerCase(),
-        username: baseUsername.toLowerCase(),
-        email: cred.user.email || "",
-        phone: cred.user.phoneNumber || "Not set",
-        photoURL: cred.user.photoURL || "https://ui-avatars.com/api/?name=User&background=1e3a8a&color=fff",
-        bio: "Available on NexChat Pro",
-        isBlocked: false,
-        createdAt: serverTimestamp()
-      });
-    }
-  } catch (err) {
-    showAlert(err.message);
+// ============================================================================
+// 7. OAUTH LOGIN (GOOGLE / GITHUB) WITH POPUP + REDIRECT FALLBACK
+// ============================================================================
+async function ensureOAuthUserDoc(user) {
+  const uRef = doc(db, "users", user.uid);
+  const snap = await getDoc(uRef);
+  if (!snap.exists()) {
+    const cleanBase = (user.email?.split("@")[0] || "user").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const baseUsername = `${cleanBase}_${Math.floor(100 + Math.random() * 900)}`;
+    await setDoc(doc(db, "usernames", baseUsername), { uid: user.uid });
+    await setDoc(uRef, {
+      uid: user.uid,
+      displayName: user.displayName || "NexChat User",
+      displayNameLower: (user.displayName || "NexChat User").toLowerCase(),
+      username: baseUsername,
+      email: user.email || "",
+      phone: user.phoneNumber || "Not set",
+      photoURL: user.photoURL || "https://ui-avatars.com/api/?name=User&background=1e3a8a&color=fff",
+      bio: "Available on NexChat Pro",
+      isBlocked: false,
+      createdAt: serverTimestamp()
+    });
   }
 }
 
+async function handleOAuthLogin(provider) {
+  try {
+    showAlert("গুগল সাইন-ইন ওপেন হচ্ছে...", false);
+    const cred = await signInWithPopup(auth, provider);
+    await ensureOAuthUserDoc(cred.user);
+  } catch (err) {
+    if (err.code === "auth/popup-blocked" || err.code === "auth/operation-not-supported-in-this-environment") {
+      await signInWithRedirect(auth, provider);
+    } else if (err.code === "auth/unauthorized-domain") {
+      showAlert("Firebase Console -> Authentication -> Settings -> Authorized domains-এ গিয়ে shikhagain1992-oss.github.io ডোমেইনটি Add করুন।");
+    } else {
+      showAlert(err.message);
+    }
+  }
+}
+
+getRedirectResult(auth)
+  .then(async res => {
+    if (res && res.user) await ensureOAuthUserDoc(res.user);
+  })
+  .catch(err => showAlert(err.message));
+
 // ============================================================================
-// 5. PERSISTENT SESSION & PRESENCE
+// 8. SESSION MANAGEMENT, USER SEARCH & REAL-TIME MESSAGING
 // ============================================================================
 onAuthStateChanged(auth, async user => {
   if (!user) {
@@ -305,7 +498,7 @@ onAuthStateChanged(auth, async user => {
     if (!snap.exists()) return;
     currentUserProfile = snap.data();
     if (currentUserProfile.isBlocked) {
-      alert("Your account has been restricted by the Platform Administrator.");
+      alert("Your account has been restricted by the Administrator.");
       signOut(auth);
       return;
     }
@@ -318,6 +511,8 @@ onAuthStateChanged(auth, async user => {
   });
 
   setupRealtimePresence(user.uid);
+  setupUserSearch();
+  setupMediaInputs();
   listenToConversations();
   listenToStatuses();
   listenForIncomingCalls();
@@ -336,75 +531,47 @@ function setupRealtimePresence(uid) {
   });
 }
 
-function listenToConversations() {
-  const q = query(collection(db, "conversations"), where("participants", "array-contains", currentUser.uid));
-  onSnapshot(q, snap => {
-    const listEl = document.getElementById("conversation-list");
-    if (!listEl) return;
-    listEl.innerHTML = "";
-    snap.forEach(docSnap => {
-      const c = docSnap.data();
-      let title = c.groupName || "Chat";
-      let avatar = c.groupPhoto || "https://ui-avatars.com/api/?name=Group&background=0f172a&color=fff";
-      if (c.type === "direct") {
-        const otherUid = c.participants.find(id => id !== currentUser.uid);
-        const info = c.participantInfo?.[otherUid] || {};
-        title = info.displayName || "User";
-        avatar = info.photoURL || "https://ui-avatars.com/api/?name=U";
+function setupUserSearch() {
+  const searchInput = document.getElementById("user-search-input") || document.getElementById("search-user-input");
+  if (!searchInput) return;
+
+  searchInput.addEventListener("input", async e => {
+    const term = e.target.value.trim().toLowerCase().replace(/^@/, "");
+    const resultsBox = document.getElementById("search-results-list");
+    if (!term) {
+      if (resultsBox) resultsBox.innerHTML = "";
+      return;
+    }
+    const snap = await getDocs(collection(db, "users"));
+    const matches = [];
+    snap.forEach(d => {
+      const u = d.data();
+      if (u.uid !== currentUser.uid && (u.username?.includes(term) || u.displayNameLower?.includes(term))) {
+        matches.push(u);
       }
-      const row = document.createElement("div");
-      row.className = "p-3 flex items-center justify-between hover:bg-blue-50/60 cursor-pointer transition";
-      row.innerHTML = `
-        <div class="flex items-center gap-3 min-w-0">
-          <img src="${avatar}" class="w-11 h-11 rounded-full object-cover shrink-0 border border-slate-200" />
-          <div class="min-w-0">
-            <h4 class="text-sm font-bold text-slate-800 truncate">${title}</h4>
-            <p class="text-xs text-slate-500 truncate">${c.lastMessage || "No messages yet"}</p>
-          </div>
+    });
+
+    const targetList = resultsBox || document.getElementById("conversation-list");
+    if (!targetList) return;
+    targetList.innerHTML = "";
+    matches.forEach(u => {
+      const item = document.createElement("div");
+      item.className = "p-3 flex items-center gap-3 hover:bg-blue-50 cursor-pointer border-b border-slate-100";
+      item.innerHTML = `
+        <img src="${u.photoURL}" class="w-10 h-10 rounded-full object-cover border" />
+        <div>
+          <h4 class="text-sm font-bold text-slate-800">${u.displayName}</h4>
+          <p class="text-xs text-blue-700">@${u.username}</p>
         </div>
       `;
-      row.addEventListener("click", () => openConversation({ id: c.id, type: c.type, title, avatar, data: c }));
-      listEl.appendChild(row);
+      item.onclick = () => startOrOpenDirectChat(u);
+      targetList.appendChild(item);
     });
   });
 }
 
-function openConversation(chatObj) {
-  activeChat = chatObj;
-  document.getElementById("empty-chat-placeholder")?.classList.add("hidden");
-  document.getElementById("active-chat-container")?.classList.remove("hidden");
-  document.getElementById("chat-panel")?.classList.remove("hidden");
-  document.getElementById("chat-header-title").textContent = chatObj.title;
-  document.getElementById("chat-header-avatar").src = chatObj.avatar;
-}
-
-function listenForIncomingCalls() {
-  const q = query(collection(db, "calls"), where("calleeId", "==", currentUser.uid), where("status", "==", "ringing"));
-  onSnapshot(q, snap => {
-    snap.docChanges().forEach(change => {
-      if (change.type === "added") {
-        const callData = change.doc.data();
-        currentCallId = change.doc.id;
-        document.getElementById("call-overlay")?.classList.remove("hidden");
-        document.getElementById("incoming-call-controls")?.classList.remove("hidden");
-        document.getElementById("active-call-controls")?.classList.add("hidden");
-        document.getElementById("call-partner-name").textContent = callData.callerName;
-      }
-    });
-  });
-}
-
-function listenToStatuses() {
-  onSnapshot(collection(db, "statuses"), snap => {
-    const feedEl = document.getElementById("status-feed-list");
-    if (!feedEl) return;
-    feedEl.innerHTML = "";
-    snap.forEach(docSnap => {
-      const s = docSnap.data();
-      const card = document.createElement("div");
-      card.className = "p-3 bg-white border rounded-xl space-y-2 shadow-sm";
-      card.innerHTML = `<p class="text-xs font-bold">${s.displayName}</p><p class="text-xs">${s.text || ""}</p>`;
-      feedEl.appendChild(card);
-    });
-  });
-}
+async function startOrOpenDirectChat(otherUser) {
+  const sortedIds = [currentUser.uid, otherUser.uid].sort();
+  const convId = `${sortedIds[0]}_${sortedIds[1]}`;
+  const convRef = doc(db, "conversations", convId);
+  const
