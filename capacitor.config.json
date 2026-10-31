@@ -1,1 +1,20 @@
+{
+  "appId": "com.sayan.nexchatpro",
+  "appName": "NexChat Pro",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon_config_sample",
+      "iconColor": "#1e3a8a",
+      "sound": "call_ringtone.wav"
+    }
+  }
+}
 
