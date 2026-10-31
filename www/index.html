@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#008069" />
+  <title>NexChat Pro</title>
+  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+</head>
+<body>
+  <div id="appRoot" class="app-shell">
+
+    <!-- ================= AUTH SCREEN ================= -->
+    <section id="authScreen" class="screen active">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="auth-logo">
+            <i class="fa-solid fa-comments"></i>
+          </div>
+          <h1>NexChat Pro</h1>
+          <p>Fast, secure messaging &amp; calling</p>
+        </div>
+
+        <div class="auth-tabs">
+          <button type="button" id="tabLoginBtn" class="auth-tab active">Log In</button>
+          <button type="button" id="tabSignupBtn" class="auth-tab">Sign Up</button>
+        </div>
+
+        <form id="authForm" class="auth-form" autocomplete="on">
+          <div id="signupFields" class="hidden">
+            <div class="input-group">
+              <i class="fa-regular fa-user"></i>
+              <input type="text" id="authDisplayName" placeholder="Display Name (e.g. Sayan Gain)" />
+            </div>
+            <div class="input-group">
+              <i class="fa-solid fa-at"></i>
+              <input type="text" id="authUsername" placeholder="Username (e.g. sayan_gain)" />
+            </div>
+          </div>
+
+          <div class="input-group">
+            <i class="fa-regular fa-envelope"></i>
+            <input type="email" id="authEmail" placeholder="Email address" required />
+          </div>
+
+          <div class="input-group">
+            <i class="fa-solid fa-lock"></i>
+            <input type="password" id="authPassword" placeholder="Password (min 6 chars)" required />
+          </div>
+
+          <p id="authErrorMsg" class="auth-error hidden"></p>
+
+          <button type="submit" id="authSubmitBtn" class="btn-primary">Log In</button>
+        </form>
+
+        <div class="auth-divider"><span>OR</span></div>
+
+        <button type="button" id="googleSignInBtn" class="btn-google">
+          <i class="fa-brands fa-google"></i> Continue with Google
+        </button>
+      </div>
+    </section>
+
+    <!-- ================= MAIN HOME SCREEN ================= -->
+    <section id="mainScreen" class="screen">
+      <!-- Top App Bar -->
+      <header class="wa-header">
+        <div class="wa-header-top">
+          <h1 class="wa-title">NexChat Pro</h1>
+          <div class="wa-header-actions">
+            <button type="button" id="toggleSearchBtn" class="icon-btn" title="Search users">
+              <i class="fa-solid fa-magnifying-glass"></i>
+            </button>
+            <button type="button" id="themeToggleBtn" class="icon-btn" title="Toggle Dark Mode">
+              <i class="fa-solid fa-moon"></i>
+            </button>
+            <button type="button" id="openProfileModalBtn" class="avatar-btn" title="Profile & Settings">
+              <img id="myHeaderAvatar" src="https://ui-avatars.com/api/?name=User&background=00a884&color=fff" alt="Me" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Expandable Search Bar -->
+        <div id="searchBarContainer" class="wa-search-bar hidden">
+          <button type="button" id="closeSearchBtn" class="icon-btn-dark">
+            <i class="fa-solid fa-arrow-left"></i>
+          </button>
+          <input
+            type="text"
+            id="userSearchInput"
+            placeholder="Search by Display Name or @username..."
+            autocomplete="off"
+          />
+          <button type="button" id="clearSearchInputBtn" class="icon-btn-dark hidden">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- Search Results Overlay Panel -->
+      <div id="searchResultsPanel" class="search-results-panel hidden">
+        <div class="search-panel-header">
+          <span id="searchStatusText">Type a name or @username to start chatting</span>
+        </div>
+        <div id="searchResultsList" class="wa-list"></div>
+      </div>
+
+      <!-- Tab Views Container -->
+      <main class="wa-main-content">
+        <!-- Tab 1: Chats List -->
+        <div id="tabChatsView" class="tab-view active">
+          <div id="chatListContainer" class="wa-list"></div>
+          <div id="emptyChatsState" class="empty-state">
+            <i class="fa-regular fa-comment-dots"></i>
+            <h3>No conversations yet</h3>
+            <p>Tap the search icon or the green chat button below to find a user and start messaging.</p>
+          </div>
+        </div>
+
+        <!-- Tab 2: Status / Updates -->
+        <div id="tabStatusView" class="tab-view">
+          <div class="status-my-card" id="addStatusCardBtn">
+            <div class="status-avatar-wrap">
+              <img id="myStatusAvatar" src="https://ui-avatars.com/api/?name=Me&background=00a884&color=fff" alt="My Status" />
+              <span class="status-plus-badge"><i class="fa-solid fa-plus"></i></span>
+            </div>
+            <div class="wa-item-info">
+              <h4>My Status</h4>
+              <p>Tap to add status update (24h)</p>
+            </div>
+          </div>
+          <div class="section-Subheader">Recent updates</div>
+          <div id="statusListContainer" class="wa-list"></div>
+        </div>
+
+        <!-- Tab 3: Groups -->
+        <div id="tabGroupsView" class="tab-view">
+          <div class="create-group-banner" id="openCreateGroupBtn">
+            <div class="group-icon-circle"><i class="fa-solid fa-user-group"></i></div>
+            <div class="wa-item-info">
+              <h4>New Group</h4>
+              <p>Create a group chat with multiple friends</p>
+            </div>
+          </div>
+          <div class="section-Subheader">Your Groups</div>
+          <div id="groupListContainer" class="wa-list"></div>
+        </div>
+
+        <!-- Tab 4: Calls -->
+        <div id="tabCallsView" class="tab-view">
+          <div id="callLogsContainer" class="wa-list"></div>
+          <div id="emptyCallsState" class="empty-state">
+            <i class="fa-solid fa-phone-volume"></i>
+            <h3>No recent calls</h3>
+            <p>Open any chat and tap the voice or video icon at the top to place a call.</p>
+          </div>
+        </div>
+      </main>
+
+      <!-- Floating Action Button (New Chat / Search Users) -->
+      <button type="button" id="fabNewChatBtn" class="wa-fab" title="New Chat">
+        <i class="fa-solid fa-message"></i>
+      </button>
+
+      <!-- WhatsApp Android Bottom Navigation Bar -->
+      <nav class="wa-bottom-nav">
+        <button type="button" class="nav-item active" data-tab="tabChatsView">
+          <div class="nav-icon-pill">
+            <i class="fa-solid fa-message"></i>
+            <span id="totalUnreadBadge" class="nav-badge hidden">0</span>
+          </div>
+          <span>Chats</span>
+        </button>
+        <button type="button" class="nav-item" data-tab="tabStatusView">
+          <div class="nav-icon-pill">
+            <i class="fa-regular fa-circle-dot"></i>
+          </div>
+          <span>Updates</span>
+        </button>
+        <button type="button" class="nav-item" data-tab="tabGroupsView">
+          <div class="nav-icon-pill">
+            <i class="fa-solid fa-users"></i>
+          </div>
+          <span>Groups</span>
+        </button>
+        <button type="button" class="nav-item" data-tab="tabCallsView">
+          <div class="nav-icon-pill">
+            <i class="fa-solid fa-phone"></i>
+          </div>
+          <span>Calls</span>
+        </button>
+      </nav>
+    </section>
+
+    <!-- ================= CHAT CONVERSATION SCREEN ================= -->
+    <section id="chatScreen" class="screen">
+      <!-- Chat Top Bar -->
+      <header class="wa-chat-header">
+        <button type="button" id="chatBackBtn" class="icon-btn" title="Back to chats">
+          <i class="fa-solid fa-arrow-left"></i>
+        </button>
+        <div class="chat-peer-profile" id="chatPeerHeaderInfo">
+          <div class="avatar-wrap">
+            <img id="chatPeerAvatar" src="https://ui-avatars.com/api/?name=User&background=00a884&color=fff" alt="Peer" />
+            <span id="chatPeerOnlineDot" class="online-dot hidden"></span>
+          </div>
+          <div class="chat-peer-text">
+            <h2 id="chatPeerName">Contact Name</h2>
+            <p id="chatPeerStatus">offline</p>
+          </div>
+        </div>
+        <div class="chat-header-actions">
+          <button type="button" id="startVideoCallBtn" class="icon-btn" title="Video Call">
+            <i class="fa-solid fa-video"></i>
+          </button>
+          <button type="button" id="startVoiceCallBtn" class="icon-btn" title="Voice Call">
+            <i class="fa-solid fa-phone"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- Messages Area with WhatsApp Wallpaper -->
+      <div id="messagesViewport" class="wa-messages-viewport">
+        <div id="messagesList" class="wa-messages-list"></div>
+      </div>
+
+      <!-- Emoji Quick Bar -->
+      <div id="emojiPickerBar" class="emoji-bar hidden">
+        <span>😀</span><span>😂</span><span>😍</span><span>🥳</span><span>👍</span>
+        <span>❤️</span><span>🔥</span><span>🙏</span><span>🎉</span><span>😎</span>
+        <span>😢</span><span>🤔</span><span>💯</span><span>🚀</span><span>✨</span>
+      </div>
+
+      <!-- Bottom Input Bar -->
+      <footer class="wa-chat-footer">
+        <div class="wa-input-pill">
+          <button type="button" id="emojiToggleBtn" class="composer-icon-btn" title="Emoji">
+            <i class="fa-regular fa-face-smile"></i>
+          </button>
+          <input
+            type="text"
+            id="messageTextInput"
+            placeholder="Message"
+            autocomplete="off"
+          />
+          <label for="mediaFileInput" class="composer-icon-btn" title="Attach image or file">
+            <i class="fa-solid fa-paperclip"></i>
+          </label>
+          <input type="file" id="mediaFileInput" accept="image/*,video/*,audio/*" class="hidden" />
+          <label for="cameraCaptureInput" class="composer-icon-btn" title="Camera">
+            <i class="fa-solid fa-camera"></i>
+          </label>
+          <input type="file" id="cameraCaptureInput" accept="image/*" capture="environment" class="hidden" />
+        </div>
+
+        <button type="button" id="sendOrMicBtn" class="wa-send-circle" title="Send or Record Voice">
+          <i id="sendOrMicIcon" class="fa-solid fa-paper-plane"></i>
+        </button>
+      </footer>
+    </section>
+
+    <!-- ================= PROFILE & SETTINGS MODAL ================= -->
+    <div id="profileModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Profile &amp; Settings</h3>
+          <button type="button" id="closeProfileModalBtn" class="icon-btn-dark">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="profile-avatar-editor">
+            <img id="profileModalAvatar" src="https://ui-avatars.com/api/?name=User&background=00a884&color=fff" alt="Profile" />
+            <label for="profilePhotoInput" class="avatar-edit-badge">
+              <i class="fa-solid fa-camera"></i>
+            </label>
+            <input type="file" id="profilePhotoInput" accept="image/*" class="hidden" />
+          </div>
+          <div class="input-group">
+            <i class="fa-regular fa-user"></i>
+            <input type="text" id="editDisplayNameInput" placeholder="Display Name" />
+          </div>
+          <div class="input-group">
+            <i class="fa-solid fa-at"></i>
+            <input type="text" id="editUsernameInput" placeholder="Username" />
+          </div>
+          <div class="input-group">
+            <i class="fa-regular fa-circle-question"></i>
+            <input type="text" id="editBioInput" placeholder="About (e.g. Hey there! I am using NexChat Pro)" />
+          </div>
+          <button type="button" id="saveProfileBtn" class="btn-primary">Save Profile</button>
+          <button type="button" id="logoutBtn" class="btn-danger">
+            <i class="fa-solid fa-right-from-bracket"></i> Log Out
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= CALL OVERLAY MODAL ================= -->
+    <div id="callModal" class="call-overlay hidden">
+      <div class="call-info">
+        <img id="callPeerAvatar" src="https://ui-avatars.com/api/?name=User&background=00a884&color=fff" alt="Caller" />
+        <h3 id="callPeerName">User</h3>
+        <p id="callStatusLabel">Calling...</p>
+      </div>
+      <div class="call-videos">
+        <video id="remoteVideo" autoplay playsinline></video>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+      <div class="call-controls">
+        <button type="button" id="acceptCallBtn" class="call-btn accept hidden">
+          <i class="fa-solid fa-phone"></i>
+        </button>
+        <button type="button" id="endCallBtn" class="call-btn hangup">
+          <i class="fa-solid fa-phone-slash"></i>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
