@@ -40,7 +40,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // ============================================================================
-// 1. PRE-CONFIGURED FIREBASE, CLOUDINARY & GITHUB SETTINGS FOR NEXCHAT PRO
+// 1. PRE-CONFIGURED FIREBASE, CLOUDINARY & GITHUB SETTINGS
 // ============================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyAb6XQuA5QqqoglYSvtQ-cjpOuuV3s_vwo",
@@ -52,10 +52,8 @@ const firebaseConfig = {
   appId: "1:418090114272:web:1391225432d0f9eb44c485"
 };
 
-// Free Cloudinary Media Storage Configuration (Replaces Paid Firebase Storage)
-const CLOUDINARY_CLOUD_NAME = "Emoxfdx6".toLowerCase().trim();
+const CLOUDINARY_CLOUD_NAME = "emoxfdx6";
 const CLOUDINARY_UPLOAD_PRESET = "ml_default";
-
 const GITHUB_REPO = "shikhagain1992-oss/nexchat-pro";
 const APP_VERSION = "v1.0.0";
 
@@ -64,11 +62,10 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const rtdb = getDatabase(app);
 
-// Keep user logged in persistently across app closes & phone restarts
 setPersistence(auth, browserLocalPersistence);
 
 // ============================================================================
-// 2. CLOUDINARY UNIVERSAL UPLOAD ENGINE (IMAGES, VIDEOS, VOICE NOTES & FILES)
+// 2. CLOUDINARY MEDIA UPLOAD ENGINE
 // ============================================================================
 async function uploadToCloudinary(fileOrBlob, folderName = "nexchat_pro", customFileName = null) {
   const formData = new FormData();
@@ -88,19 +85,13 @@ async function uploadToCloudinary(fileOrBlob, folderName = "nexchat_pro", custom
 
   const data = await response.json();
   if (!response.ok || !data.secure_url) {
-    const errMsg = data.error?.message || "Cloudinary upload failed";
-    if (errMsg.toLowerCase().includes("unsigned")) {
-      alert(
-        "Cloudinary Error: অনুগ্রহ করে আপনার Cloudinary Settings -> Upload -> Upload presets-এ গিয়ে 'ml_default' প্রিসেটটির Signing Mode 'Unsigned' করে Save করুন।"
-      );
-    }
-    throw new Error(errMsg);
+    throw new Error(data.error?.message || "Cloudinary upload failed");
   }
   return data.secure_url;
 }
 
 // ============================================================================
-// 3. GLOBAL APPLICATION STATE
+// 3. GLOBAL APPLICATION STATE & UI INITIALIZATION (DOM LOADED SAFE)
 // ============================================================================
 let currentUser = null;
 let currentUserProfile = null;
@@ -124,16 +115,46 @@ let currentFacingMode = "user";
 let callTimerInterval = null;
 
 const rtcConfig = {
-  iceServers: [
-    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
-  ]
+  iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }]
 };
 
-// ============================================================================
-// 4. UI HELPERS & APK RELEASE CHECKER
-// ============================================================================
+document.addEventListener("DOMContentLoaded", () => {
+  // Tab Switching Logic
+  const tabLogin = document.getElementById("tab-login");
+  const tabRegister = document.getElementById("tab-register");
+  const loginForm = document.getElementById("login-form");
+  const registerForm = document.getElementById("register-form");
+
+  if (tabLogin && tabRegister && loginForm && registerForm) {
+    tabLogin.addEventListener("click", () => {
+      loginForm.classList.remove("hidden");
+      registerForm.classList.add("hidden");
+      tabLogin.classList.add("border-blue-900", "text-blue-950", "bg-white");
+      tabRegister.classList.remove("border-blue-900", "text-blue-950", "bg-white");
+    });
+
+    tabRegister.addEventListener("click", () => {
+      registerForm.classList.remove("hidden");
+      loginForm.classList.add("hidden");
+      tabRegister.classList.add("border-blue-900", "text-blue-950", "bg-white");
+      tabLogin.classList.remove("border-blue-900", "text-blue-950", "bg-white");
+    });
+  }
+
+  // Password Visibility Toggles
+  document.querySelectorAll(".toggle-password").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const input = document.getElementById(btn.dataset.target);
+      if (input) input.type = input.type === "password" ? "text" : "password";
+    });
+  });
+
+  fetchLatestGithubApk();
+});
+
 function showAlert(msg, isError = true) {
   const el = document.getElementById("auth-alert");
+  if (!el) return;
   el.textContent = msg;
   el.className = `mb-4 p-3 rounded-lg text-xs font-medium ${
     isError ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-800"
@@ -152,98 +173,91 @@ async function fetchLatestGithubApk() {
     }
     const apkAsset = (release.assets || []).find(a => a.name.endsWith(".apk"));
     if (apkAsset) {
-      document.getElementById("direct-apk-download-link").href = apkAsset.browser_download_url;
+      const dlLink = document.getElementById("direct-apk-download-link");
+      if (dlLink) dlLink.href = apkAsset.browser_download_url;
     }
   } catch (e) {}
 }
-fetchLatestGithubApk();
-
-document.querySelectorAll(".toggle-password").forEach(btn => {
-  btn.addEventListener("click", () => {
-    const input = document.getElementById(btn.dataset.target);
-    input.type = input.type === "password" ? "text" : "password";
-  });
-});
-
-document.getElementById("tab-login").addEventListener("click", () => {
-  document.getElementById("login-form").classList.remove("hidden");
-  document.getElementById("register-form").classList.add("hidden");
-  document.getElementById("tab-login").classList.add("border-blue-900", "text-blue-950", "bg-white");
-  document.getElementById("tab-register").classList.remove("border-blue-900", "text-blue-950", "bg-white");
-});
-
-document.getElementById("tab-register").addEventListener("click", () => {
-  document.getElementById("register-form").classList.remove("hidden");
-  document.getElementById("login-form").classList.add("hidden");
-  document.getElementById("tab-register").classList.add("border-blue-900", "text-blue-950", "bg-white");
-  document.getElementById("tab-login").classList.remove("border-blue-900", "text-blue-950", "bg-white");
-});
 
 // ============================================================================
-// 5. AUTHENTICATION & UNIQUE USERNAME REGISTRATION (WITH CLOUDINARY AVATAR)
+// 4. AUTHENTICATION & REGISTRATION
 // ============================================================================
-document.getElementById("register-form").addEventListener("submit", async e => {
-  e.preventDefault();
-  const displayName = document.getElementById("reg-name").value.trim();
-  const username = document.getElementById("reg-username").value.trim().toLowerCase();
-  const phone = document.getElementById("reg-phone").value.trim();
-  const email = document.getElementById("reg-email").value.trim();
-  const password = document.getElementById("reg-password").value;
-  const avatarFile = document.getElementById("reg-avatar").files[0];
+document.addEventListener("submit", async e => {
+  if (e.target && e.target.id === "register-form") {
+    e.preventDefault();
+    const displayName = document.getElementById("reg-name").value.trim();
+    const username = document.getElementById("reg-username").value.trim().toLowerCase();
+    const phone = document.getElementById("reg-phone").value.trim();
+    const email = document.getElementById("reg-email").value.trim();
+    const password = document.getElementById("reg-password").value;
+    const avatarFile = document.getElementById("reg-avatar").files[0];
 
-  try {
-    const usernameRef = doc(db, "usernames", username);
-    const usernameSnap = await getDoc(usernameRef);
-    if (usernameSnap.exists()) {
-      return showAlert("Username @" + username + " is already taken. Choose another.");
+    try {
+      const usernameRef = doc(db, "usernames", username);
+      const usernameSnap = await getDoc(usernameRef);
+      if (usernameSnap.exists()) {
+        return showAlert("Username @" + username + " is already taken. Choose another.");
+      }
+
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      let photoURL = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=1e3a8a&color=fff`;
+
+      if (avatarFile) {
+        photoURL = await uploadToCloudinary(avatarFile, `nexchat_pro/avatars/${cred.user.uid}`);
+      }
+
+      await setDoc(usernameRef, { uid: cred.user.uid });
+      await setDoc(doc(db, "users", cred.user.uid), {
+        uid: cred.user.uid,
+        displayName,
+        displayNameLower: displayName.toLowerCase(),
+        username,
+        email,
+        phone,
+        photoURL,
+        bio: "Hey there! I am using NexChat Pro.",
+        isBlocked: false,
+        createdAt: serverTimestamp()
+      });
+
+      await sendEmailVerification(cred.user);
+    } catch (err) {
+      showAlert(err.message);
     }
+  }
 
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    let photoURL = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=1e3a8a&color=fff`;
-
-    if (avatarFile) {
-      photoURL = await uploadToCloudinary(avatarFile, `nexchat_pro/avatars/${cred.user.uid}`);
+  if (e.target && e.target.id === "login-form") {
+    e.preventDefault();
+    const email = document.getElementById("login-email").value.trim();
+    const password = document.getElementById("login-password").value;
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      showAlert(err.message);
     }
-
-    await setDoc(usernameRef, { uid: cred.user.uid });
-    await setDoc(doc(db, "users", cred.user.uid), {
-      uid: cred.user.uid,
-      displayName,
-      displayNameLower: displayName.toLowerCase(),
-      username,
-      email,
-      phone,
-      photoURL,
-      bio: "Hey there! I am using NexChat Pro.",
-      isBlocked: false,
-      createdAt: serverTimestamp()
-    });
-
-    await sendEmailVerification(cred.user);
-  } catch (err) {
-    showAlert(err.message);
   }
 });
 
-document.getElementById("login-form").addEventListener("submit", async e => {
-  e.preventDefault();
-  const email = document.getElementById("login-email").value.trim();
-  const password = document.getElementById("login-password").value;
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-  } catch (err) {
-    showAlert(err.message);
+document.addEventListener("click", async e => {
+  if (e.target && e.target.id === "forgot-password-btn") {
+    const email = document.getElementById("login-email")?.value.trim();
+    if (!email) return showAlert("Enter your email address first to reset password.");
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showAlert("Password reset email sent! Check your inbox.", false);
+    } catch (err) {
+      showAlert(err.message);
+    }
   }
-});
 
-document.getElementById("forgot-password-btn").addEventListener("click", async () => {
-  const email = document.getElementById("login-email").value.trim();
-  if (!email) return showAlert("Enter your email address first to reset password.");
-  try {
-    await sendPasswordResetEmail(auth, email);
-    showAlert("Password reset email sent! Check your inbox.", false);
-  } catch (err) {
-    showAlert(err.message);
+  if (e.target && e.target.id === "google-login-btn") handleOAuthLogin(new GoogleAuthProvider());
+  if (e.target && e.target.id === "github-login-btn") handleOAuthLogin(new GithubAuthProvider());
+  if (e.target && e.target.id === "logout-btn") {
+    if (currentUser) {
+      await rtdbSet(rtdbRef(rtdb, `status/${currentUser.uid}`), { state: "offline", lastChanged: rtdbTimestamp() });
+    }
+    await signOut(auth);
+    location.reload();
   }
 });
 
@@ -273,29 +287,19 @@ async function handleOAuthLogin(provider) {
   }
 }
 
-document.getElementById("google-login-btn").addEventListener("click", () => handleOAuthLogin(new GoogleAuthProvider()));
-document.getElementById("github-login-btn").addEventListener("click", () => handleOAuthLogin(new GithubAuthProvider()));
-document.getElementById("logout-btn").addEventListener("click", async () => {
-  if (currentUser) {
-    await rtdbSet(rtdbRef(rtdb, `status/${currentUser.uid}`), { state: "offline", lastChanged: rtdbTimestamp() });
-  }
-  await signOut(auth);
-  location.reload();
-});
-
 // ============================================================================
-// 6. PERSISTENT SESSION, DEVICE SECURITY & REALTIME DATABASE PRESENCE
+// 5. PERSISTENT SESSION & PRESENCE
 // ============================================================================
 onAuthStateChanged(auth, async user => {
   if (!user) {
-    document.getElementById("auth-view").classList.remove("hidden");
-    document.getElementById("main-app").classList.add("hidden");
+    document.getElementById("auth-view")?.classList.remove("hidden");
+    document.getElementById("main-app")?.classList.add("hidden");
     return;
   }
 
   currentUser = user;
-  document.getElementById("auth-view").classList.add("hidden");
-  document.getElementById("main-app").classList.remove("hidden");
+  document.getElementById("auth-view")?.classList.add("hidden");
+  document.getElementById("main-app")?.classList.remove("hidden");
 
   onSnapshot(doc(db, "users", user.uid), snap => {
     if (!snap.exists()) return;
@@ -305,65 +309,23 @@ onAuthStateChanged(auth, async user => {
       signOut(auth);
       return;
     }
-    document.getElementById("my-nav-name").textContent = currentUserProfile.displayName;
-    document.getElementById("my-nav-username").textContent = "@" + currentUserProfile.username;
-    document.getElementById("my-nav-avatar").src = currentUserProfile.photoURL;
-    document.getElementById("profile-modal-avatar").src = currentUserProfile.photoURL;
-    document.getElementById("edit-display-name").value = currentUserProfile.displayName || "";
-    document.getElementById("edit-phone").value = currentUserProfile.phone || "";
-    document.getElementById("edit-bio").value = currentUserProfile.bio || "";
+    const nameEl = document.getElementById("my-nav-name");
+    const unameEl = document.getElementById("my-nav-username");
+    const avatarEl = document.getElementById("my-nav-avatar");
+    if (nameEl) nameEl.textContent = currentUserProfile.displayName;
+    if (unameEl) unameEl.textContent = "@" + currentUserProfile.username;
+    if (avatarEl) avatarEl.src = currentUserProfile.photoURL;
   });
 
-  registerDeviceSession(user.uid);
   setupRealtimePresence(user.uid);
   listenToConversations();
   listenToStatuses();
   listenForIncomingCalls();
-  initNativePushNotifications(user.uid);
 });
-
-async function registerDeviceSession(uid) {
-  let sessionId = localStorage.getItem("nexchat_device_session_id");
-  const isNewDevice = !sessionId;
-  if (!sessionId) {
-    sessionId = "sess_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
-    localStorage.setItem("nexchat_device_session_id", sessionId);
-  }
-  const deviceAgent = navigator.userAgent.slice(0, 80);
-  await setDoc(doc(db, "users", uid, "sessions", sessionId), {
-    sessionId,
-    device: deviceAgent,
-    lastActive: serverTimestamp(),
-    isNewAlert: isNewDevice
-  }, { merge: true });
-
-  onSnapshot(collection(db, "users", uid, "sessions"), snap => {
-    const listEl = document.getElementById("active-sessions-list");
-    listEl.innerHTML = "";
-    snap.forEach(docSnap => {
-      const s = docSnap.data();
-      if (s.sessionId !== sessionId && s.isNewAlert) {
-        const banner = document.getElementById("security-alert-banner");
-        document.getElementById("security-alert-text").textContent = `Security Alert: New login detected on (${s.device.slice(0, 35)}...)`;
-        banner.classList.remove("hidden");
-      }
-      const row = document.createElement("div");
-      row.className = "flex items-center justify-between p-2 bg-slate-50 rounded-lg border";
-      row.innerHTML = `
-        <div class="truncate pr-2">
-          <p class="font-semibold text-slate-800 truncate">${s.device}</p>
-          <span class="text-[10px] text-emerald-600">${s.sessionId === sessionId ? "Current Device" : "Active Session"}</span>
-        </div>
-      `;
-      listEl.appendChild(row);
-    });
-  });
-}
 
 function setupRealtimePresence(uid) {
   const connectedRef = rtdbRef(rtdb, ".info/connected");
   const userStatusRef = rtdbRef(rtdb, `status/${uid}`);
-
   onValue(connectedRef, snap => {
     if (snap.val() === false) return;
     onDisconnect(userStatusRef)
@@ -374,134 +336,22 @@ function setupRealtimePresence(uid) {
   });
 }
 
-// ============================================================================
-// 7. USER PROFILE EDIT (CLOUDINARY) & USER SEARCH
-// ============================================================================
-document.getElementById("profile-update-form").addEventListener("submit", async e => {
-  e.preventDefault();
-  if (!currentUser) return;
-  const displayName = document.getElementById("edit-display-name").value.trim();
-  const phone = document.getElementById("edit-phone").value.trim();
-  const bio = document.getElementById("edit-bio").value.trim();
-  const file = document.getElementById("profile-avatar-upload").files[0];
-
-  try {
-    const updates = {
-      displayName,
-      displayNameLower: displayName.toLowerCase(),
-      phone,
-      bio
-    };
-
-    if (file) {
-      updates.photoURL = await uploadToCloudinary(file, `nexchat_pro/avatars/${currentUser.uid}`);
-    }
-
-    await updateDoc(doc(db, "users", currentUser.uid), updates);
-    alert("Profile updated across NexChat Pro!");
-  } catch (err) {
-    alert("Profile update failed: " + err.message);
-  }
-});
-
-document.getElementById("run-user-search-btn").addEventListener("click", async () => {
-  const term = document.getElementById("global-user-search").value.trim().toLowerCase().replace(/^@/, "");
-  if (!term) return;
-  const container = document.getElementById("discover-results-list");
-  container.innerHTML = `<p class="text-xs text-slate-400 p-3">Searching...</p>`;
-
-  const usersSnap = await getDocs(collection(db, "users"));
-  container.innerHTML = "";
-  usersSnap.forEach(d => {
-    const u = d.data();
-    if (u.uid === currentUser.uid) return;
-    if (u.username?.includes(term) || u.displayNameLower?.includes(term)) {
-      const item = document.createElement("div");
-      item.className = "p-2.5 flex items-center justify-between hover:bg-slate-50 rounded-lg";
-      item.innerHTML = `
-        <div class="flex items-center gap-2.5">
-          <img src="${u.photoURL}" class="w-10 h-10 rounded-full object-cover" />
-          <div>
-            <p class="text-xs font-bold text-slate-800">${u.displayName}</p>
-            <p class="text-[11px] text-slate-500">@${u.username}</p>
-          </div>
-        </div>
-        <button class="bg-blue-950 text-white px-3 py-1.5 rounded-lg text-xs font-semibold">Message</button>
-      `;
-      item.querySelector("button").addEventListener("click", () => startDirectConversation(u));
-      container.appendChild(item);
-    }
-  });
-});
-
-async function startDirectConversation(otherUser) {
-  const ids = [currentUser.uid, otherUser.uid].sort();
-  const chatId = `${ids[0]}_${ids[1]}`;
-  const chatRef = doc(db, "conversations", chatId);
-  const snap = await getDoc(chatRef);
-  if (!snap.exists()) {
-    await setDoc(chatRef, {
-      id: chatId,
-      type: "direct",
-      participants: ids,
-      participantInfo: {
-        [currentUser.uid]: {
-          displayName: currentUserProfile.displayName,
-          photoURL: currentUserProfile.photoURL,
-          username: currentUserProfile.username
-        },
-        [otherUser.uid]: {
-          displayName: otherUser.displayName,
-          photoURL: otherUser.photoURL,
-          username: otherUser.username
-        }
-      },
-      lastMessage: "Conversation started",
-      updatedAt: serverTimestamp(),
-      typing: {}
-    });
-  }
-  openConversation({
-    id: chatId,
-    type: "direct",
-    otherUid: otherUser.uid,
-    title: otherUser.displayName,
-    avatar: otherUser.photoURL,
-    data: (await getDoc(chatRef)).data()
-  });
-}
-
-// ============================================================================
-// 8. CONVERSATIONS LIST & REAL-TIME PERSONAL / GROUP CHAT
-// ============================================================================
 function listenToConversations() {
   const q = query(collection(db, "conversations"), where("participants", "array-contains", currentUser.uid));
   onSnapshot(q, snap => {
     const listEl = document.getElementById("conversation-list");
+    if (!listEl) return;
     listEl.innerHTML = "";
-
-    snap.docChanges().forEach(change => {
-      if (change.type === "modified") {
-        const c = change.doc.data();
-        if (c.lastSenderId && c.lastSenderId !== currentUser.uid && (!activeChat || activeChat.id !== c.id)) {
-          triggerLocalAlertForMessage(c);
-        }
-      }
-    });
-
     snap.forEach(docSnap => {
       const c = docSnap.data();
       let title = c.groupName || "Chat";
       let avatar = c.groupPhoto || "https://ui-avatars.com/api/?name=Group&background=0f172a&color=fff";
-      let otherUid = null;
-
       if (c.type === "direct") {
-        otherUid = c.participants.find(id => id !== currentUser.uid);
+        const otherUid = c.participants.find(id => id !== currentUser.uid);
         const info = c.participantInfo?.[otherUid] || {};
         title = info.displayName || "User";
         avatar = info.photoURL || "https://ui-avatars.com/api/?name=U";
       }
-
       const row = document.createElement("div");
       row.className = "p-3 flex items-center justify-between hover:bg-blue-50/60 cursor-pointer transition";
       row.innerHTML = `
@@ -512,13 +362,49 @@ function listenToConversations() {
             <p class="text-xs text-slate-500 truncate">${c.lastMessage || "No messages yet"}</p>
           </div>
         </div>
-        <span class="text-[10px] text-slate-400 shrink-0">${c.type === "group" ? "GROUP" : ""}</span>
       `;
-      row.addEventListener("click", () =>
-        openConversation({ id: c.id, type: c.type, otherUid, title, avatar, data: c })
-      );
+      row.addEventListener("click", () => openConversation({ id: c.id, type: c.type, title, avatar, data: c }));
       listEl.appendChild(row);
     });
   });
-  }
-  
+}
+
+function openConversation(chatObj) {
+  activeChat = chatObj;
+  document.getElementById("empty-chat-placeholder")?.classList.add("hidden");
+  document.getElementById("active-chat-container")?.classList.remove("hidden");
+  document.getElementById("chat-panel")?.classList.remove("hidden");
+  document.getElementById("chat-header-title").textContent = chatObj.title;
+  document.getElementById("chat-header-avatar").src = chatObj.avatar;
+}
+
+function listenForIncomingCalls() {
+  const q = query(collection(db, "calls"), where("calleeId", "==", currentUser.uid), where("status", "==", "ringing"));
+  onSnapshot(q, snap => {
+    snap.docChanges().forEach(change => {
+      if (change.type === "added") {
+        const callData = change.doc.data();
+        currentCallId = change.doc.id;
+        document.getElementById("call-overlay")?.classList.remove("hidden");
+        document.getElementById("incoming-call-controls")?.classList.remove("hidden");
+        document.getElementById("active-call-controls")?.classList.add("hidden");
+        document.getElementById("call-partner-name").textContent = callData.callerName;
+      }
+    });
+  });
+}
+
+function listenToStatuses() {
+  onSnapshot(collection(db, "statuses"), snap => {
+    const feedEl = document.getElementById("status-feed-list");
+    if (!feedEl) return;
+    feedEl.innerHTML = "";
+    snap.forEach(docSnap => {
+      const s = docSnap.data();
+      const card = document.createElement("div");
+      card.className = "p-3 bg-white border rounded-xl space-y-2 shadow-sm";
+      card.innerHTML = `<p class="text-xs font-bold">${s.displayName}</p><p class="text-xs">${s.text || ""}</p>`;
+      feedEl.appendChild(card);
+    });
+  });
+}
