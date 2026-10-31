@@ -1,1 +1,83 @@
+name: Build & Release Android APK
 
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up JDK 17 for Android Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Install Capacitor & Push Dependencies
+        run: npm install
+
+      - name: Generate Android Native Project via Capacitor
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Copy google-services.json if present
+        run: |
+          if [ -f "google-services.json" ]; then
+            cp google-services.json android/app/google-services.json
+          fi
+
+      - name: Generate Native Call Ringtone & Message Alert Sound in res/raw
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          python3 -c "import wave,struct,math; make=lambda fn,fs,d:(w:=wave.open(fn,'w'),w.setnchannels(1),w.setsampwidth(2),w.setframerate(22050),[w.writeframesraw(struct.pack('<h',int(16000*math.sin(2*math.pi*fs[int((i/22050)*4)%len(fs)]*(i/22050))))) for i in range(int(22050*d))],w.close()); make('android/app/src/main/res/raw/call_ringtone.wav',[880,1174,880,1174,0,0],3.5); make('android/app/src/main/res/raw/msg_tone.wav',[1046,1318],0.6)"
+
+      - name: Inject Android 13+ Notification, Vibration & Camera Permissions
+        run: |
+          sed -i '/<\/manifest>/i \
+          <uses-permission android:name="android.permission.INTERNET" />\n\
+          <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n\
+          <uses-permission android:name="android.permission.VIBRATE" />\n\
+          <uses-permission android:name="android.permission.WAKE_LOCK" />\n\
+          <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />\n\
+          <uses-permission android:name="android.permission.CAMERA" />\n\
+          <uses-permission android:name="android.permission.RECORD_AUDIO" />\n\
+          <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' android/app/src/main/AndroidManifest.xml
+
+          sed -i '/<\/application>/i \
+          <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="nexchat_messages" />' android/app/src/main/AndroidManifest.xml
+
+      - name: Build Installable Android APK with Gradle
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Rename APK for Clean Download
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk NexChatPro-debug.apk
+
+      - name: Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: NexChat Pro Android APK v1.0.${{ github.run_number }}
+          files: NexChatPro-debug.apk
+          draft: false
+          prerelease: false
+          
