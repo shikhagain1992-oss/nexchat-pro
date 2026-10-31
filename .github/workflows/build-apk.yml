@@ -1,4 +1,4 @@
-name: Build & Release Android APK
+name: Build APK & Deploy Web
 
 on:
   push:
@@ -7,9 +7,11 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  build-android-apk:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -27,10 +29,10 @@ jobs:
           distribution: 'temurin'
           java-version: 17
 
-      - name: Install Capacitor & Push Dependencies
+      - name: Install Dependencies
         run: npm install
 
-      - name: Generate Android Native Project via Capacitor
+      - name: Generate Android Native Project
         run: |
           if [ ! -d "android" ]; then
             npx cap add android
@@ -43,33 +45,28 @@ jobs:
             cp google-services.json android/app/google-services.json
           fi
 
-      - name: Generate Native Call Ringtone & Message Alert Sound in res/raw
+      - name: Generate Native Audio Files
         run: |
           mkdir -p android/app/src/main/res/raw
           python3 -c "import wave,struct,math; make=lambda fn,fs,d:(w:=wave.open(fn,'w'),w.setnchannels(1),w.setsampwidth(2),w.setframerate(22050),[w.writeframesraw(struct.pack('<h',int(16000*math.sin(2*math.pi*fs[int((i/22050)*4)%len(fs)]*(i/22050))))) for i in range(int(22050*d))],w.close()); make('android/app/src/main/res/raw/call_ringtone.wav',[880,1174,880,1174,0,0],3.5); make('android/app/src/main/res/raw/msg_tone.wav',[1046,1318],0.6)"
 
-      - name: Inject Android 13+ Notification, Vibration & Camera Permissions
+      - name: Inject Android Permissions
         run: |
           sed -i '/<\/manifest>/i \
           <uses-permission android:name="android.permission.INTERNET" />\n\
           <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n\
           <uses-permission android:name="android.permission.VIBRATE" />\n\
           <uses-permission android:name="android.permission.WAKE_LOCK" />\n\
-          <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />\n\
           <uses-permission android:name="android.permission.CAMERA" />\n\
-          <uses-permission android:name="android.permission.RECORD_AUDIO" />\n\
-          <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' android/app/src/main/AndroidManifest.xml
+          <uses-permission android:name="android.permission.RECORD_AUDIO" />' android/app/src/main/AndroidManifest.xml
 
-          sed -i '/<\/application>/i \
-          <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="nexchat_messages" />' android/app/src/main/AndroidManifest.xml
-
-      - name: Build Installable Android APK with Gradle
+      - name: Build Android APK
         working-directory: ./android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: Rename APK for Clean Download
+      - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk NexChatPro-debug.apk
 
       - name: Publish APK to GitHub Releases
@@ -78,6 +75,16 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: NexChat Pro Android APK v1.0.${{ github.run_number }}
           files: NexChatPro-debug.apk
-          draft: false
-          prerelease: false
-          
+
+      - name: Setup Pages for Website
+        uses: actions/configure-pages@v4
+
+      - name: Upload Website Artifact (www folder)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './www'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        
