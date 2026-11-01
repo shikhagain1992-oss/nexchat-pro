@@ -101,6 +101,7 @@ let unsubMessages = null;
 let unsubPeerPresence = null;
 let unsubStatuses = null;
 let unsubCalls = null;
+let unsubCallHistory = null;
 let unsubActiveCallDoc = null;
 let unsubCalleeCandidates = null;
 let unsubCallerCandidates = null;
@@ -120,8 +121,13 @@ let currentCallDocId = null;
 let pendingCallData = null;
 let useFrontCamera = true;
 let isAudioMuted = false;
+let isVideoMuted = false;
+let isSpeakerOn = true;
+let isCallConnected = false;
+let pendingIceCandidates = [];
 let callDurationInterval = null;
 let callStartedAtMs = 0;
+  
 
 const $ = (id) => document.getElementById(id);
 
