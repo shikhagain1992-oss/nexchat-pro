@@ -1277,12 +1277,12 @@ body.dark-theme .msg-quoted-box {
 }
 
 .call-btn {
-  width: 58px;
-  height: 58px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
   border: none;
   color: #fff;
-  font-size: 21px;
+  font-size: 20px;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   display: flex;
@@ -1294,6 +1294,11 @@ body.dark-theme .msg-quoted-box {
   background: rgba(255, 255, 255, 0.22);
 }
 
+.call-btn.mute-btn.active-toggle {
+  background: #ffffff;
+  color: #0b141a;
+}
+
 .call-btn.accept {
   background: var(--wa-green-bright);
 }
@@ -1301,3 +1306,26 @@ body.dark-theme .msg-quoted-box {
 .call-btn.hangup {
   background: var(--wa-danger);
 }
+
+.call-dir-missed {
+  color: var(--wa-danger);
+  font-weight: 600;
+}
+
+.call-dir-normal {
+  color: var(--wa-brand-green);
+}
+
+.call-log-action-btn {
+  border: none;
+  background: transparent;
+  color: var(--wa-brand-green);
+  font-size: 18px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  }
