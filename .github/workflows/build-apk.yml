@@ -18,73 +18,228 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20"
 
-      - name: Set up JDK 17 for Android Gradle
+      - name: Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: 17
+          distribution: "temurin"
+          java-version: "21"
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Generate Android Native Project
+      - name: Install Capacitor & Generate Android Project
         run: |
-          if [ ! -d "android" ]; then
+          if [ ! -f package.json ]; then
+            npm init -y
+          fi
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/push-notifications
+          if [ ! -d android ]; then
             npx cap add android
           fi
           npx cap sync android
 
-      - name: Copy google-services.json if present
+      - name: Inject Native Permissions, Notification Channels & WebRTC Bridge into Android APK
         run: |
-          if [ -f "google-services.json" ]; then
-            cp google-services.json android/app/google-services.json
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i '/<\/manifest>/i \
+            <uses-permission android:name="android.permission.INTERNET" />\
+            <uses-permission android:name="android.permission.RECORD_AUDIO" />\
+            <uses-permission android:name="android.permission.CAMERA" />\
+            <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\
+            <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\
+            <uses-permission android:name="android.permission.VIBRATE" />\
+            <uses-permission android:name="android.permission.WAKE_LOCK" />\
+            <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />\
+            <uses-feature android:name="android.hardware.camera" android:required="false" />\
+            <uses-feature android:name="android.hardware.microphone" android:required="false" />' "$MANIFEST"
           fi
 
-      - name: Generate Native Audio Files
-        run: |
-          mkdir -p android/app/src/main/res/raw
-          python3 -c "import wave,struct,math; make=lambda fn,fs,d:(w:=wave.open(fn,'w'),w.setnchannels(1),w.setsampwidth(2),w.setframerate(22050),[w.writeframesraw(struct.pack('<h',int(16000*math.sin(2*math.pi*fs[int((i/22050)*4)%len(fs)]*(i/22050))))) for i in range(int(22050*d))],w.close()); make('android/app/src/main/res/raw/call_ringtone.wav',[880,1174,880,1174,0,0],3.5); make('android/app/src/main/res/raw/msg_tone.wav',[1046,1318],0.6)"
+          MAIN_ACT=$(find android/app/src/main/java -name "MainActivity.java" | head -n 1)
+          if [ -n "$MAIN_ACT" ]; then
+            PKG_LINE=$(grep "^package " "$MAIN_ACT" | head -n 1)
+            cat << 'EOF' > "$MAIN_ACT"
+          PACKAGE_PLACEHOLDER
 
-      - name: Inject Android Permissions
-        run: |
-          sed -i '/<\/manifest>/i \
-          <uses-permission android:name="android.permission.INTERNET" />\n\
-          <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n\
-          <uses-permission android:name="android.permission.VIBRATE" />\n\
-          <uses-permission android:name="android.permission.WAKE_LOCK" />\n\
-          <uses-permission android:name="android.permission.CAMERA" />\n\
-          <uses-permission android:name="android.permission.RECORD_AUDIO" />' android/app/src/main/AndroidManifest.xml
+          import android.Manifest;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.media.AudioAttributes;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.view.WindowManager;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebView;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.app.NotificationCompat;
+          import androidx.core.content.ContextCompat;
+          import com.getcapacitor.BridgeActivity;
+          import java.util.ArrayList;
+          import java.util.List;
 
-      - name: Build Android APK
-        working-directory: ./android
+          public class MainActivity extends BridgeActivity {
+              private static final int REQ_PERMS = 1001;
+              public static final String CH_MSG = "nexchat_messages_v2";
+              public static final String CH_VOICE = "nexchat_voice_calls_v2";
+              public static final String CH_VIDEO = "nexchat_video_calls_v2";
+              public static final String CH_MISSED = "nexchat_missed_calls_v2";
+
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                      setShowWhenLocked(true);
+                      setTurnScreenOn(true);
+                  }
+                  getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+                  createNexChatNotificationChannels();
+                  requestEssentialRuntimePermissions();
+
+                  if (this.bridge != null && this.bridge.getWebView() != null) {
+                      WebView webView = this.bridge.getWebView();
+                      webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                      webView.addJavascriptInterface(new NexChatJsBridge(this), "NexChatAndroidBridge");
+
+                      webView.setWebChromeClient(new WebChromeClient() {
+                          @Override
+                          public void onPermissionRequest(final PermissionRequest request) {
+                              runOnUiThread(() -> request.grant(request.getResources()));
+                          }
+                      });
+                  }
+              }
+
+              private void requestEssentialRuntimePermissions() {
+                  List<String> needed = new ArrayList<>();
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                      needed.add(Manifest.permission.RECORD_AUDIO);
+                  }
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                      needed.add(Manifest.permission.CAMERA);
+                  }
+                  if (Build.VERSION.SDK_INT >= 33) {
+                      if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                          needed.add(Manifest.permission.POST_NOTIFICATIONS);
+                      }
+                  }
+                  if (!needed.isEmpty()) {
+                      ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), REQ_PERMS);
+                  }
+              }
+
+              private void createNexChatNotificationChannels() {
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+                  NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm == null) return;
+
+                  Uri msgSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                  Uri callRing = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+
+                  AudioAttributes msgAttr = new AudioAttributes.Builder()
+                      .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                      .build();
+
+                  AudioAttributes callAttr = new AudioAttributes.Builder()
+                      .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                      .build();
+
+                  NotificationChannel msgCh = new NotificationChannel(CH_MSG, "Message Notifications", NotificationManager.IMPORTANCE_HIGH);
+                  msgCh.enableVibration(true);
+                  msgCh.setSound(msgSound, msgAttr);
+                  msgCh.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+                  nm.createNotificationChannel(msgCh);
+
+                  NotificationChannel voiceCh = new NotificationChannel(CH_VOICE, "Incoming Voice Calls", NotificationManager.IMPORTANCE_HIGH);
+                  voiceCh.enableVibration(true);
+                  voiceCh.setSound(callRing, callAttr);
+                  voiceCh.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+                  nm.createNotificationChannel(voiceCh);
+
+                  NotificationChannel videoCh = new NotificationChannel(CH_VIDEO, "Incoming Video Calls", NotificationManager.IMPORTANCE_HIGH);
+                  videoCh.enableVibration(true);
+                  videoCh.setSound(callRing, callAttr);
+                  videoCh.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+                  nm.createNotificationChannel(videoCh);
+
+                  NotificationChannel missedCh = new NotificationChannel(CH_MISSED, "Missed Calls", NotificationManager.IMPORTANCE_DEFAULT);
+                  missedCh.enableVibration(true);
+                  missedCh.setSound(msgSound, msgAttr);
+                  nm.createNotificationChannel(missedCh);
+              }
+
+              public static class NexChatJsBridge {
+                  private final Context ctx;
+                  public NexChatJsBridge(Context c) { this.ctx = c; }
+
+                  @JavascriptInterface
+                  public void showNotification(String title, String body, String tag, String peerUid) {
+                      NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+                      if (nm == null) return;
+                      boolean isCall = tag != null && tag.startsWith("call_");
+                      String channelId = isCall ? CH_VOICE : CH_MSG;
+
+                      Intent intent = new Intent(ctx, MainActivity.class);
+                      intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                      PendingIntent pi = PendingIntent.getActivity(
+                          ctx,
+                          tag != null ? tag.hashCode() : 0,
+                          intent,
+                          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+
+                      NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, channelId)
+                          .setSmallIcon(android.R.drawable.sym_action_chat)
+                          .setContentTitle(title)
+                          .setContentText(body)
+                          .setPriority(NotificationCompat.PRIORITY_HIGH)
+                          .setCategory(isCall ? NotificationCompat.CATEGORY_CALL : NotificationCompat.CATEGORY_MESSAGE)
+                          .setAutoCancel(true)
+                          .setContentIntent(pi);
+
+                      if (isCall) {
+                          b.setFullScreenIntent(pi, true);
+                      }
+                      nm.notify(tag != null ? tag.hashCode() : (int) System.currentTimeMillis(), b.build());
+                  }
+              }
+          }
+          EOF
+            sed -i "s|PACKAGE_PLACEHOLDER|$PKG_LINE|g" "$MAIN_ACT"
+          fi
+
+      - name: Build Debug APK
         run: |
+          cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../www/NexChat-Pro.apk
 
-      - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk NexChatPro-debug.apk
-
-      - name: Publish APK to GitHub Releases
-        uses: softprops/action-gh-release@v2
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: NexChat Pro Android APK v1.0.${{ github.run_number }}
-          files: NexChatPro-debug.apk
-
-      - name: Setup Pages for Website
-        uses: actions/configure-pages@v4
-
-      - name: Upload Website Artifact (www folder)
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './www'
+          name: NexChat-Pro-APK
+          path: www/NexChat-Pro.apk
 
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-        
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./www
+          
