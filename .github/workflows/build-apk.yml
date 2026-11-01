@@ -32,39 +32,14 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Capacitor & Generate Android Project
+      - name: Install Dependencies & Build Capacitor Android
         run: |
-          if [ ! -f package.json ]; then
-            npm init -y
-          fi
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/push-notifications
-          if [ ! -d android ]; then
-            npx cap add android
-          fi
+          npm install
+          npx cap init NexChatPro com.sayan.nexchatpro --web-dir www --yes || true
+          npx cap add android || true
           npx cap sync android
 
-      - name: Inject WhatsApp-like Persistent Background & Always-Allow Permissions
-        run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            sed -i '/<\/manifest>/i \
-            <uses-permission android:name="android.permission.INTERNET" />\
-            <uses-permission android:name="android.permission.RECORD_AUDIO" />\
-            <uses-permission android:name="android.permission.CAMERA" />\
-            <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\
-            <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\
-            <uses-permission android:name="android.permission.VIBRATE" />\
-            <uses-permission android:name="android.permission.WAKE_LOCK" />\
-            <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />\
-            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\
-            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />\
-            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />\
-            <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />\
-            <uses-feature android:name="android.hardware.camera" android:required="false" />\
-            <uses-feature android:name="android.hardware.microphone" android:required="false" />' "$MANIFEST"
-          fi
-
-      - name: Build Debug APK
+      - name: Build Android Debug APK
         run: |
           cd android
           chmod +x gradlew
