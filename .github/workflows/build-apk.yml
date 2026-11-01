@@ -18,32 +18,24 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Setup Java JDK 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Capacitor & Generate Android Project
+      - name: Install Dependencies & Capacitor Android
         run: |
-          if [ ! -f package.json ]; then
-            npm init -y
-          fi
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/push-notifications
-          if [ ! -d android ]; then
-            npx cap add android
-          fi
+          npm install
+          npx cap add android || true
           npx cap sync android
 
-      - name: Build Debug APK
+      - name: Build Android Debug APK
         run: |
           cd android
           chmod +x gradlew
