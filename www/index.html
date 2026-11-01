@@ -336,12 +336,12 @@
       </div>
     </div>
 
-    <!-- ================= FULL-SCREEN CALL OVERLAY WITH DRAGGABLE PIP ================= -->
+        <!-- ================= FULL-SCREEN CALL OVERLAY WITH DRAGGABLE PIP ================= -->
     <div id="callModal" class="call-overlay hidden">
       <div class="call-videos">
         <video id="remoteVideo" autoplay playsinline></video>
         <!-- Draggable PiP Local Video Container -->
-        <div id="localVideoWrap" class="draggable-pip">
+        <div id="localVideoWrap" class="draggable-pip hidden">
           <video id="localVideo" autoplay playsinline muted></video>
           <button type="button" id="switchCamBtn" class="pip-cam-btn" title="Switch Camera">
             <i class="fa-solid fa-camera-rotate"></i>
@@ -354,17 +354,24 @@
         <p id="callStatusLabel">Calling...</p>
       </div>
       <div class="call-controls">
-        <button type="button" id="toggleMicMuteBtn" class="call-btn mute-btn">
+        <button type="button" id="toggleSpeakerBtn" class="call-btn mute-btn" title="Speaker">
+          <i class="fa-solid fa-volume-high"></i>
+        </button>
+        <button type="button" id="toggleVideoBtn" class="call-btn mute-btn hidden" title="Camera On/Off">
+          <i class="fa-solid fa-video"></i>
+        </button>
+        <button type="button" id="toggleMicMuteBtn" class="call-btn mute-btn" title="Mute Microphone">
           <i class="fa-solid fa-microphone"></i>
         </button>
-        <button type="button" id="acceptCallBtn" class="call-btn accept hidden">
+        <button type="button" id="acceptCallBtn" class="call-btn accept hidden" title="Accept Call">
           <i class="fa-solid fa-phone"></i>
         </button>
-        <button type="button" id="endCallBtn" class="call-btn hangup">
+        <button type="button" id="endCallBtn" class="call-btn hangup" title="End or Reject Call">
           <i class="fa-solid fa-phone-slash"></i>
         </button>
       </div>
     </div>
+    
 
   </div>
 
