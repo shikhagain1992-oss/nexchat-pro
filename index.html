@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <title>NexChat Pro</title>
+  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+</head>
+<body>
+  <div id="appRoot" class="app-shell">
+
+    <!-- ================= AUTH SCREEN (ONLY SHOWN WHEN LOGGED OUT) ================= -->
+    <section id="authScreen" class="screen">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="auth-logo">
+            <i class="fa-brands fa-whatsapp"></i>
+          </div>
+          <h1>NexChat Pro</h1>
+          <p>Simple, reliable, private messaging &amp; calling</p>
+        </div>
+
+        <div class="auth-tabs">
+          <button type="button" id="tabLoginBtn" class="auth-tab active">Log In</button>
+          <button type="button" id="tabSignupBtn" class="auth-tab">Sign Up</button>
+        </div>
+
+        <form id="authForm" class="auth-form" autocomplete="on">
+          <div id="signupFields" class="hidden">
+            <div class="input-group">
+              <i class="fa-regular fa-user"></i>
+              <input type="text" id="authDisplayName" placeholder="Display Name (e.g. Sayan Gain)" />
+            </div>
+            <div class="input-group">
+              <i class="fa-solid fa-at"></i>
+              <input type="text" id="authUsername" placeholder="Username (e.g. sayan_gain)" />
+            </div>
+          </div>
+
+          <div class="input-group">
+            <i class="fa-regular fa-envelope"></i>
+            <input type="email" id="authEmail" placeholder="Email address" required />
+          </div>
+
+          <div class="input-group">
+            <i class="fa-solid fa-lock"></i>
+            <input type="password" id="authPassword" placeholder="Password (min 6 chars)" required />
+          </div>
+
+          <p id="authErrorMsg" class="auth-error hidden"></p>
+
+          <button type="submit" id="authSubmitBtn" class="btn-primary">Log In</button>
+        </form>
+
+        <div class="auth-divider"><span>OR</span></div>
+
+        <button type="button" id="googleSignInBtn" class="btn-google">
+          <i class="fa-brands fa-google"></i> Continue with Google
+        </button>
+      </div>
+    </section>
+
+    <!-- ================= MAIN HOME SCREEN (DEFAULT DIRECT OPEN) ================= -->
+    <section id="mainScreen" class="screen">
+      <header class="wa-modern-header">
+        <div class="wa-header-top">
+          <h1 class="wa-brand-title">NexChat</h1>
+          <div class="wa-header-actions">
+            <button type="button" id="headerCameraBtn" class="icon-btn-modern" title="Camera">
+              <i class="fa-solid fa-camera"></i>
+            </button>
+            <button type="button" id="themeToggleBtn" class="icon-btn-modern" title="Toggle Theme">
+              <i class="fa-solid fa-moon"></i>
+            </button>
+            <button type="button" id="openProfileModalBtn" class="avatar-btn-modern" title="Profile & Settings">
+              <img id="myHeaderAvatar" alt="Me" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Modern WhatsApp Integrated Search Pill -->
+        <div class="wa-modern-search-row">
+          <div class="wa-search-pill">
+            <i class="fa-solid fa-magnifying-glass search-pill-icon"></i>
+            <input
+              type="text"
+              id="userSearchInput"
+              placeholder="Search name or @username..."
+              autocomplete="off"
+            />
+            <button type="button" id="clearSearchInputBtn" class="clear-search-btn hidden">
+              <i class="fa-solid fa-circle-xmark"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Modern WhatsApp Filter Chips -->
+        <div class="wa-filter-chips">
+          <button type="button" class="chip active" data-filter="all">All</button>
+          <button type="button" class="chip" data-filter="unread">Unread</button>
+          <button type="button" class="chip" data-filter="groups">Groups</button>
+        </div>
+      </header>
+
+      <!-- Live User Search Overlay Panel -->
+      <div id="searchResultsPanel" class="search-results-panel hidden">
+        <div class="search-panel-header">
+          <span id="searchStatusText">Directory Search</span>
+          <button type="button" id="closeSearchPanelBtn" class="text-close-btn">Close</button>
+        </div>
+        <div id="searchResultsList" class="wa-list"></div>
+      </div>
+
+      <!-- Main Tab Views -->
+      <main class="wa-main-content">
+        <!-- Tab 1: Chats -->
+        <div id="tabChatsView" class="tab-view active">
+          <div id="chatListContainer" class="wa-list"></div>
+          <div id="emptyChatsState" class="empty-state">
+            <div class="empty-icon-circle">
+              <i class="fa-regular fa-comments"></i>
+            </div>
+            <h3>Start chatting on NexChat</h3>
+            <p>Search any user above or tap the green + button below to start a conversation.</p>
+          </div>
+        </div>
+
+        <!-- Tab 2: Status / Updates -->
+        <div id="tabStatusView" class="tab-view">
+          <div class="section-Subheader">Status</div>
+          <div class="status-my-card" id="addStatusCardBtn">
+            <div class="status-avatar-wrap">
+              <img id="myStatusAvatar" alt="My Status" />
+              <span class="status-plus-badge"><i class="fa-solid fa-plus"></i></span>
+            </div>
+            <div class="wa-item-info">
+              <h4 class="wa-item-title">My status</h4>
+              <p class="wa-item-sub">Tap to add status update</p>
+            </div>
+          </div>
+          <div class="section-Subheader">Recent updates</div>
+          <div id="statusListContainer" class="wa-list"></div>
+        </div>
+
+        <!-- Tab 3: Communities / Groups -->
+        <div id="tabGroupsView" class="tab-view">
+          <div class="create-group-banner" id="openCreateGroupBtn">
+            <div class="group-icon-circle"><i class="fa-solid fa-user-group"></i></div>
+            <div class="wa-item-info">
+              <h4 class="wa-item-title">New group</h4>
+              <p class="wa-item-sub">Create a group chat with friends</p>
+            </div>
+          </div>
+          <div class="section-Subheader">Your groups</div>
+          <div id="groupListContainer" class="wa-list"></div>
+        </div>
+
+        <!-- Tab 4: Calls -->
+        <div id="tabCallsView" class="tab-view">
+          <div id="callLogsContainer" class="wa-list"></div>
+          <div id="emptyCallsState" class="empty-state">
+            <div class="empty-icon-circle">
+              <i class="fa-solid fa-phone"></i>
+            </div>
+            <h3>No recent calls</h3>
+            <p>Open a chat and tap the video or voice call icon at the top.</p>
+          </div>
+        </div>
+      </main>
+
+      <!-- Floating New Chat Button -->
+      <button type="button" id="fabNewChatBtn" class="wa-fab" title="New Chat">
+        <i class="fa-solid fa-square-plus"></i>
+      </button>
+
+      <!-- Modern WhatsApp Bottom Navigation -->
+      <nav class="wa-bottom-nav">
+        <button type="button" class="nav-item active" data-tab="tabChatsView">
+          <div class="nav-icon-pill">
+            <i class="fa-solid fa-message"></i>
+            <span id="totalUnreadBadge" class="nav-badge hidden">0</span>
+          </div>
+          <span>Chats</span>
+        </button>
+        <button type="button" class="nav-item" data-tab="tabStatusView">
+          <div class="nav-icon-pill">
+            <i class="fa-regular fa-circle-dot"></i>
+          </div>
+          <span>Updates</span>
+        </button>
+        <button type="button" class="nav-item" data-tab="tabGroupsView">
+          <div class="nav-icon-pill">
+            <i class="fa-solid fa-users"></i>
+          </div>
+          <span>Communities</span>
+        </button>
+        <button type="button" class="nav-item" data-tab="tabCallsView">
+          <div class="nav-icon-pill">
+            <i class="fa-solid fa-phone"></i>
+          </div>
+          <span>Calls</span>
+        </button>
+      </nav>
+    </section>
+
+    <!-- ================= CHAT CONVERSATION SCREEN ================= -->
+    <section id="chatScreen" class="screen">
+      <header class="wa-chat-header">
+        <button type="button" id="chatBackBtn" class="chat-header-btn" title="Back">
+          <i class="fa-solid fa-arrow-left"></i>
+        </button>
+        <div class="chat-peer-profile" id="chatPeerHeaderInfo">
+          <div class="avatar-wrap">
+            <img id="chatPeerAvatar" alt="Peer" />
+            <span id="chatPeerOnlineDot" class="online-dot hidden"></span>
+          </div>
+          <div class="chat-peer-text">
+            <h2 id="chatPeerName">Contact</h2>
+            <p id="chatPeerStatus">online</p>
+          </div>
+        </div>
+        <div class="chat-header-actions">
+          <button type="button" id="startVideoCallBtn" class="chat-header-btn" title="Video Call">
+            <i class="fa-solid fa-video"></i>
+          </button>
+          <button type="button" id="startVoiceCallBtn" class="chat-header-btn" title="Voice Call">
+            <i class="fa-solid fa-phone"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- Messages Scroll Viewport -->
+      <div id="messagesViewport" class="wa-messages-viewport">
+        <div class="encryption-notice">
+          <i class="fa-solid fa-lock"></i> Messages and calls are end-to-end synced. Swipe right on any message to reply.
+        </div>
+        <div id="messagesList" class="wa-messages-list"></div>
+      </div>
+
+      <!-- Swipe-to-Reply Quoted Preview Bar -->
+      <div id="replyPreviewBar" class="reply-preview-bar hidden">
+        <div class="reply-preview-accent"></div>
+        <div class="reply-preview-content">
+          <span id="replyPreviewSender" class="reply-preview-sender">User</span>
+          <p id="replyPreviewText" class="reply-preview-text">Message text</p>
+        </div>
+        <button type="button" id="cancelReplyBtn" class="reply-close-btn">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Quick Emoji Bar -->
+      <div id="emojiPickerBar" class="emoji-bar hidden">
+        <span>😀</span><span>😂</span><span>😍</span><span>🥳</span><span>👍</span>
+        <span>❤️</span><span>🔥</span><span>🙏</span><span>🎉</span><span>😎</span>
+        <span>😢</span><span>🤔</span><span>💯</span><span>🚀</span><span>✨</span>
+      </div>
+
+      <!-- Bottom Input Composer -->
+      <footer class="wa-chat-footer">
+        <div class="wa-input-pill">
+          <button type="button" id="emojiToggleBtn" class="composer-icon-btn" title="Emoji">
+            <i class="fa-regular fa-face-smile"></i>
+          </button>
+          <input
+            type="text"
+            id="messageTextInput"
+            placeholder="Message"
+            autocomplete="off"
+          />
+          <label for="mediaFileInput" class="composer-icon-btn" title="Attach">
+            <i class="fa-solid fa-paperclip"></i>
+          </label>
+          <input type="file" id="mediaFileInput" accept="image/*,video/*,audio/*" class="hidden" />
+          <label for="cameraCaptureInput" class="composer-icon-btn" title="Camera">
+            <i class="fa-solid fa-camera"></i>
+          </label>
+          <input type="file" id="cameraCaptureInput" accept="image/*" capture="environment" class="hidden" />
+        </div>
+
+        <button type="button" id="sendOrMicBtn" class="wa-send-circle" title="Send">
+          <i id="sendOrMicIcon" class="fa-solid fa-paper-plane"></i>
+        </button>
+      </footer>
+    </section>
+
+    <!-- ================= FORWARD MESSAGE MODAL ================= -->
+    <div id="forwardModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Forward message to...</h3>
+          <button type="button" id="closeForwardModalBtn" class="icon-btn-modern">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div id="forwardUserList" class="wa-list forward-scroll-list"></div>
+      </div>
+    </div>
+
+    <!-- ================= PROFILE & SETTINGS MODAL ================= -->
+    <div id="profileModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Profile &amp; Account</h3>
+          <button type="button" id="closeProfileModalBtn" class="icon-btn-modern">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="profile-avatar-editor">
+            <img id="profileModalAvatar" alt="Profile" />
+            <label for="profilePhotoInput" class="avatar-edit-badge">
+              <i class="fa-solid fa-camera"></i>
+            </label>
+            <input type="file" id="profilePhotoInput" accept="image/*" class="hidden" />
+          </div>
+          <div class="input-group">
+            <i class="fa-regular fa-user"></i>
+            <input type="text" id="editDisplayNameInput" placeholder="Display Name" />
+          </div>
+          <div class="input-group">
+            <i class="fa-solid fa-at"></i>
+            <input type="text" id="editUsernameInput" placeholder="Username" />
+          </div>
+          <div class="input-group">
+            <i class="fa-regular fa-circle-question"></i>
+            <input type="text" id="editBioInput" placeholder="About" />
+          </div>
+          <button type="button" id="saveProfileBtn" class="btn-primary">Save Changes</button>
+          <button type="button" id="logoutBtn" class="btn-danger">
+            <i class="fa-solid fa-right-from-bracket"></i> Log Out
+          </button>
+        </div>
+      </div>
+    </div>
+
+        <!-- ================= FULL-SCREEN CALL OVERLAY WITH DRAGGABLE PIP ================= -->
+    <div id="callModal" class="call-overlay hidden">
+      <div class="call-videos">
+        <video id="remoteVideo" autoplay playsinline></video>
+        <!-- Draggable PiP Local Video Container -->
+        <div id="localVideoWrap" class="draggable-pip hidden">
+          <video id="localVideo" autoplay playsinline muted></video>
+          <button type="button" id="switchCamBtn" class="pip-cam-btn" title="Switch Camera">
+            <i class="fa-solid fa-camera-rotate"></i>
+          </button>
+        </div>
+      </div>
+      <div id="callInfoHeader" class="call-info">
+        <img id="callPeerAvatar" alt="Caller" />
+        <h3 id="callPeerName">User</h3>
+        <p id="callStatusLabel">Calling...</p>
+      </div>
+      <div class="call-controls">
+        <button type="button" id="toggleSpeakerBtn" class="call-btn mute-btn" title="Speaker">
+          <i class="fa-solid fa-volume-high"></i>
+        </button>
+        <button type="button" id="toggleVideoBtn" class="call-btn mute-btn hidden" title="Camera On/Off">
+          <i class="fa-solid fa-video"></i>
+        </button>
+        <button type="button" id="toggleMicMuteBtn" class="call-btn mute-btn" title="Mute Microphone">
+          <i class="fa-solid fa-microphone"></i>
+        </button>
+        <button type="button" id="acceptCallBtn" class="call-btn accept hidden" title="Accept Call">
+          <i class="fa-solid fa-phone"></i>
+        </button>
+        <button type="button" id="endCallBtn" class="call-btn hangup" title="End or Reject Call">
+          <i class="fa-solid fa-phone-slash"></i>
+        </button>
+      </div>
+    </div>
+    
+
+  </div>
+
+  <!-- Instant Screen Boot Script: Prevents Login Screen Flash if already Logged In -->
+  <script>
+    (function () {
+      try {
+        var cached = localStorage.getItem("nexchat_cached_user");
+        if (cached) {
+          document.getElementById("mainScreen").classList.add("active");
+        } else {
+          document.getElementById("authScreen").classList.add("active");
+        }
+      } catch (e) {
+        document.getElementById("authScreen").classList.add("active");
+      }
+    })();
+  </script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
