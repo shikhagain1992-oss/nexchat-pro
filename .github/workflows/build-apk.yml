@@ -1,0 +1,573 @@
+ name: Build APK & Deploy Web
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install Dependencies & Capacitor Android
+        run: |
+          npm install
+          npx cap add android || true
+          npx cap sync android
+
+      - name: Inject Full Native Android Background Service, Ringtone, Lock-Screen Call & Notification Engine
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          // 1. Patch AndroidManifest.xml with all permissions & background service
+          const manifestPath = 'android/app/src/main/AndroidManifest.xml';
+          if (fs.existsSync(manifestPath)) {
+            let manifest = fs.readFileSync(manifestPath, 'utf8');
+
+            const permissionsBlock = `
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <uses-feature android:name="android.hardware.camera" android:required="false" />
+              <uses-feature android:name="android.hardware.microphone" android:required="false" />
+            `;
+
+            if (!manifest.includes('MODIFY_AUDIO_SETTINGS')) {
+              manifest = manifest.replace('</manifest>', permissionsBlock + '\n</manifest>');
+            }
+
+            if (!manifest.includes('NexChatKeepAliveService')) {
+              const serviceBlock = `
+                <service
+                    android:name=".NexChatKeepAliveService"
+                    android:enabled="true"
+                    android:exported="false" />
+              `;
+              manifest = manifest.replace('</application>', serviceBlock + '\n    </application>');
+            }
+
+            fs.writeFileSync(manifestPath, manifest, 'utf8');
+            console.log('Successfully patched AndroidManifest.xml');
+          }
+
+          // 2. Locate MainActivity.java directory & package name
+          function findMainActivity(dir) {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                const found = findMainActivity(fullPath);
+                if (found) return found;
+              } else if (entry.name === 'MainActivity.java') {
+                return fullPath;
+              }
+            }
+            return null;
+          }
+
+          const mainActPath = findMainActivity('android/app/src/main/java');
+          if (!mainActPath) {
+            throw new Error('MainActivity.java not found');
+          }
+
+          const mainActDir = path.dirname(mainActPath);
+          const originalSrc = fs.readFileSync(mainActPath, 'utf8');
+          const pkgMatch = originalSrc.match(/^package\s+([a-zA-Z0-9_.]+);/m);
+          const pkgName = pkgMatch ? pkgMatch[1] : 'com.sayan.nexchatpro';
+
+          // 3. Create NexChatKeepAliveService.java (Keeps app & WebView alive when screen is OFF)
+          const serviceCode = `package ${pkgName};
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.app.Service;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.os.Build;
+          import android.os.IBinder;
+          import android.os.PowerManager;
+          import androidx.core.app.NotificationCompat;
+
+          public class NexChatKeepAliveService extends Service {
+              private static final String CHANNEL_ID = "nexchat_bg_service_v3";
+              private PowerManager.WakeLock wakeLock;
+
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  try {
+                      PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                      if (pm != null) {
+                          wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NexChatPro::BackgroundKeepAliveLock");
+                          wakeLock.setReferenceCounted(false);
+                          wakeLock.acquire();
+                      }
+                  } catch (Throwable ignored) {}
+
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                          if (nm != null) {
+                              NotificationChannel ch = new NotificationChannel(
+                                  CHANNEL_ID,
+                                  "NexChat Background Connection",
+                                  NotificationManager.IMPORTANCE_LOW
+                              );
+                              ch.setShowBadge(false);
+                              nm.createNotificationChannel(ch);
+                          }
+                      }
+
+                      Intent intent = new Intent(this, MainActivity.class);
+                      PendingIntent pi = PendingIntent.getActivity(
+                          this, 0, intent,
+                          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+
+                      Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                          .setSmallIcon(android.R.drawable.stat_notify_chat)
+                          .setContentTitle("NexChat Pro")
+                          .setContentText("Active for incoming calls & messages")
+                          .setPriority(NotificationCompat.PRIORITY_LOW)
+                          .setOngoing(true)
+                          .setContentIntent(pi)
+                          .build();
+
+                      startForeground(9901, notification);
+                  } catch (Throwable ignored) {}
+              }
+
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  return START_STICKY;
+              }
+
+              @Override
+              public void onDestroy() {
+                  try {
+                      if (wakeLock != null && wakeLock.isHeld()) {
+                          wakeLock.release();
+                      }
+                  } catch (Throwable ignored) {}
+                  super.onDestroy();
+              }
+
+              @Override
+              public IBinder onBind(Intent intent) {
+                  return null;
+              }
+          }
+          `;
+          fs.writeFileSync(path.join(mainActDir, 'NexChatKeepAliveService.java'), serviceCode, 'utf8');
+
+          // 4. Write Full MainActivity.java (Permissions, Screen-Off Wakeup, Native Ringtone, Notification Channels)
+          const mainActivityCode = `package ${pkgName};
+
+          import android.Manifest;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.media.AudioAttributes;
+          import android.media.Ringtone;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.PowerManager;
+          import android.os.VibrationEffect;
+          import android.os.Vibrator;
+          import android.provider.Settings;
+          import android.view.WindowManager;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebView;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.app.NotificationCompat;
+          import androidx.core.content.ContextCompat;
+          import com.getcapacitor.BridgeActivity;
+          import com.getcapacitor.BridgeWebChromeClient;
+          import java.util.ArrayList;
+          import java.util.List;
+
+          public class MainActivity extends BridgeActivity {
+              private static final int REQ_PERMS = 1001;
+              public static final String CH_MSG = "nexchat_messages_v3";
+              public static final String CH_CALL = "nexchat_calls_v3";
+              private static Ringtone activeRingtone = null;
+              private static Vibrator activeVibrator = null;
+              private static PowerManager.WakeLock screenWakeLock = null;
+
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                          setShowWhenLocked(true);
+                          setTurnScreenOn(true);
+                      }
+                      getWindow().addFlags(
+                          WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
+                          WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                          WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
+                          WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                      );
+                  } catch (Throwable ignored) {}
+
+                  createNexChatNotificationChannels();
+                  requestEssentialRuntimePermissions();
+                  requestAlwaysRunInBackgroundPermission();
+                  startKeepAliveBackgroundService();
+
+                  if (this.bridge != null && this.bridge.getWebView() != null) {
+                      WebView webView = this.bridge.getWebView();
+                      webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                      webView.getSettings().setJavaScriptEnabled(true);
+                      webView.getSettings().setDomStorageEnabled(true);
+                      webView.addJavascriptInterface(new NexChatJsBridge(this), "NexChatAndroidBridge");
+
+                      webView.setWebChromeClient(new BridgeWebChromeClient(this.bridge) {
+                          @Override
+                          public void onPermissionRequest(final PermissionRequest request) {
+                              runOnUiThread(() -> {
+                                  try {
+                                      request.grant(request.getResources());
+                                  } catch (Throwable ignored) {}
+                              });
+                          }
+                      });
+
+                      injectRealtimeCallAndMessageMonitor(webView);
+                  }
+              }
+
+              private void injectRealtimeCallAndMessageMonitor(final WebView webView) {
+                  webView.postDelayed(new Runnable() {
+                      @Override
+                      public void run() {
+                          try {
+                              String js = "(function(){" +
+                                  "if(window.__nexchatNativeHooked) return;" +
+                                  "window.__nexchatNativeHooked = true;" +
+                                  "let ringingNow = false;" +
+                                  "setInterval(function(){" +
+                                  "  const modal = document.getElementById('callModal');" +
+                                  "  const acceptBtn = document.getElementById('acceptCallBtn');" +
+                                  "  const nameEl = document.getElementById('callPeerName');" +
+                                  "  const statusEl = document.getElementById('callStatusLabel');" +
+                                  "  const isIncomingVisible = modal && !modal.classList.contains('hidden') && acceptBtn && !acceptBtn.classList.contains('hidden');" +
+                                  "  if(isIncomingVisible && !ringingNow){" +
+                                  "    ringingNow = true;" +
+                                  "    if(window.NexChatAndroidBridge && window.NexChatAndroidBridge.startIncomingCall){" +
+                                  "      window.NexChatAndroidBridge.startIncomingCall(nameEl ? nameEl.textContent : 'Incoming Call', statusEl ? statusEl.textContent : 'Calling...');" +
+                                  "    }" +
+                                  "  } else if(!isIncomingVisible && ringingNow){" +
+                                  "    ringingNow = false;" +
+                                  "    if(window.NexChatAndroidBridge && window.NexChatAndroidBridge.stopIncomingCall){" +
+                                  "      window.NexChatAndroidBridge.stopIncomingCall();" +
+                                  "    }" +
+                                  "  }" +
+                                  "}, 600);" +
+                                  "})();";
+                              webView.evaluateJavascript(js, null);
+                          } catch (Throwable ignored) {}
+                          webView.postDelayed(this, 4000);
+                      }
+                  }, 2000);
+              }
+
+@Override
+              public void onPause() {
+                  super.onPause();
+                  // Keep WebView timers and Firestore sockets active even when screen turns OFF
+                  try {
+                      if (this.bridge != null && this.bridge.getWebView() != null) {
+                          this.bridge.getWebView().onResume();
+                          this.bridge.getWebView().resumeTimers();
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              @Override
+              public void onStop() {
+                  super.onStop();
+                  try {
+                      if (this.bridge != null && this.bridge.getWebView() != null) {
+                          this.bridge.getWebView().onResume();
+                          this.bridge.getWebView().resumeTimers();
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              private void startKeepAliveBackgroundService() {
+                  try {
+                      Intent serviceIntent = new Intent(this, NexChatKeepAliveService.class);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          startForegroundService(serviceIntent);
+                      } else {
+                          startService(serviceIntent);
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              private void requestAlwaysRunInBackgroundPermission() {
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                          PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                          if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                              Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                              intent.setData(Uri.parse("package:" + getPackageName()));
+                              startActivity(intent);
+                          }
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              private void requestEssentialRuntimePermissions() {
+                  try {
+                      List<String> needed = new ArrayList<>();
+                      if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                          needed.add(Manifest.permission.RECORD_AUDIO);
+                      }
+                      if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                          needed.add(Manifest.permission.CAMERA);
+                      }
+                      if (Build.VERSION.SDK_INT >= 33) {
+                          if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                              needed.add(Manifest.permission.POST_NOTIFICATIONS);
+                          }
+                      }
+                      if (!needed.isEmpty()) {
+                          ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), REQ_PERMS);
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              private void createNexChatNotificationChannels() {
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+                  NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm == null) return;
+
+                  Uri msgSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                  Uri callRing = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+
+                  AudioAttributes msgAttr = new AudioAttributes.Builder()
+                      .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                      .build();
+
+                  AudioAttributes callAttr = new AudioAttributes.Builder()
+                      .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                      .build();
+
+                  NotificationChannel msgCh = new NotificationChannel(CH_MSG, "Message Notifications", NotificationManager.IMPORTANCE_HIGH);
+                  msgCh.enableVibration(true);
+                  msgCh.setSound(msgSound, msgAttr);
+                  msgCh.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+                  nm.createNotificationChannel(msgCh);
+
+                  NotificationChannel callCh = new NotificationChannel(CH_CALL, "Incoming Calls", NotificationManager.IMPORTANCE_HIGH);
+                  callCh.enableVibration(true);
+                  callCh.setSound(callRing, callAttr);
+                  callCh.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+                  nm.createNotificationChannel(callCh);
+              }
+
+              public static void wakeUpScreenAndStartRingtone(Context ctx) {
+                  try {
+                      PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+                      if (pm != null) {
+                          if (screenWakeLock != null && screenWakeLock.isHeld()) {
+                              screenWakeLock.release();
+                          }
+                          screenWakeLock = pm.newWakeLock(
+                              PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
+                              PowerManager.ACQUIRE_CAUSES_WAKEUP |
+                              PowerManager.ON_AFTER_RELEASE,
+                              "NexChatPro::IncomingCallWakeLock"
+                          );
+                          screenWakeLock.acquire(45000);
+                      }
+                  } catch (Throwable ignored) {}
+
+                  try {
+                      stopNativeRingtoneAndVibration();
+                      Uri ringUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                      activeRingtone = RingtoneManager.getRingtone(ctx.getApplicationContext(), ringUri);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && activeRingtone != null) {
+                          activeRingtone.setLooping(true);
+                      }
+                      if (activeRingtone != null) {
+                          activeRingtone.play();
+                      }
+                  } catch (Throwable ignored) {}
+
+                  try {
+                      activeVibrator = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+                      if (activeVibrator != null && activeVibrator.hasVibrator()) {
+                          long[] pattern = new long[]{0, 600, 400, 600, 400};
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                              activeVibrator.vibrate(VibrationEffect.createWaveform(pattern, 0));
+                          } else {
+                              activeVibrator.vibrate(pattern, 0);
+                          }
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              public static void stopNativeRingtoneAndVibration() {
+                  try {
+                      if (activeRingtone != null && activeRingtone.isPlaying()) {
+                          activeRingtone.stop();
+                      }
+                      activeRingtone = null;
+                  } catch (Throwable ignored) {}
+
+                  try {
+                      if (activeVibrator != null) {
+                          activeVibrator.cancel();
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              public static class NexChatJsBridge {
+                  private final Context ctx;
+                  public NexChatJsBridge(Context c) { this.ctx = c; }
+
+                  @JavascriptInterface
+                  public void startIncomingCall(String callerName, String callStatus) {
+                      wakeUpScreenAndStartRingtone(ctx);
+                      showNotification(
+                          callerName != null ? callerName : "Incoming Call",
+                          callStatus != null ? callStatus : "Incoming call on NexChat Pro",
+                          "call_active",
+                          ""
+                      );
+                      try {
+                          Intent bringToFront = new Intent(ctx, MainActivity.class);
+                          bringToFront.addFlags(
+                              Intent.FLAG_ACTIVITY_NEW_TASK |
+                              Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                              Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                          );
+                          ctx.startActivity(bringToFront);
+                      } catch (Throwable ignored) {}
+                  }
+
+                  @JavascriptInterface
+                  public void stopIncomingCall() {
+                      stopNativeRingtoneAndVibration();
+                      try {
+                          NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+                          if (nm != null) {
+                              nm.cancel("call_active".hashCode());
+                          }
+                      } catch (Throwable ignored) {}
+                  }
+
+                  @JavascriptInterface
+                  public void showNotification(String title, String body, String tag, String peerUid) {
+                      try {
+                          NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+                          if (nm == null) return;
+                          boolean isCall = tag != null && tag.startsWith("call_");
+                          String channelId = isCall ? CH_CALL : CH_MSG;
+
+                          if (isCall) {
+                              wakeUpScreenAndStartRingtone(ctx);
+                          } else {
+                              try {
+                                  Uri notifUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                                  Ringtone r = RingtoneManager.getRingtone(ctx.getApplicationContext(), notifUri);
+                                  if (r != null) r.play();
+                              } catch (Throwable ignored) {}
+                          }
+
+                          Intent intent = new Intent(ctx, MainActivity.class);
+                          intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                          PendingIntent pi = PendingIntent.getActivity(
+                              ctx,
+                              tag != null ? tag.hashCode() : 0,
+                              intent,
+                              PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                          );
+
+                          NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, channelId)
+                              .setSmallIcon(android.R.drawable.sym_action_chat)
+                              .setContentTitle(title != null ? title : "NexChat Pro")
+                              .setContentText(body != null ? body : "New notification")
+                              .setPriority(NotificationCompat.PRIORITY_MAX)
+                              .setCategory(isCall ? NotificationCompat.CATEGORY_CALL : NotificationCompat.CATEGORY_MESSAGE)
+                              .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                              .setDefaults(NotificationCompat.DEFAULT_ALL)
+                              .setAutoCancel(true)
+                              .setContentIntent(pi);
+
+                          if (isCall) {
+                              b.setFullScreenIntent(pi, true);
+                              b.setOngoing(true);
+                          }
+                          nm.notify(tag != null ? tag.hashCode() : (int) System.currentTimeMillis(), b.build());
+                      } catch (Throwable ignored) {}
+                  }
+              }
+          }
+          `;
+          fs.writeFileSync(mainActPath, mainActivityCode, 'utf8');
+          console.log('Successfully generated MainActivity.java and NexChatKeepAliveService.java');
+          EOF
+
+      - name: Build Android Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../www/NexChat-Pro.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexChat-Pro-APK
+          path: www/NexChat-Pro.apk
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./www
+          
