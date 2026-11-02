@@ -3433,30 +3433,42 @@ function bindUIEvents() {
   }
 }
 
-// ================= INITIALIZATION =================
+// ================= INITIALIZATION WITH 3S SPLASH SCREEN & CRASH SAFETY =================
 document.addEventListener("DOMContentLoaded", () => {
   setupAuthUI();
   bindUIEvents();
 
+  // অ্যাপ ওপেন হওয়ার সাথে সাথেই স্প্ল্যাশ স্ক্রিন বা লোগো স্ক্রিন প্রদর্শন করা
+  switchScreen("splashScreen");
+
   onAuthStateChanged(auth, async (user) => {
-    if (!user || (activeAuthUid && user.uid !== activeAuthUid)) {
-      cleanupAccountSession();
-    }
+    // ঠিক ৩ সেকেন্ড ডিলে দিয়ে ফায়ারবেস অথ স্টেট ও সেশন যাচাই করা (ক্র্যাশ রোধ করতে)
+    setTimeout(async () => {
+      try {
+        if (!user || (activeAuthUid && user.uid !== activeAuthUid)) {
+          cleanupAccountSession();
+        }
 
-    if (user && user.uid) {
-      const themePref = localStorage.getItem(`nexchat_${user.uid}_theme`);
-      document.body.classList.toggle("dark-theme", themePref === "dark");
+        if (user && user.uid) {
+          const themePref = localStorage.getItem(`nexchat_${user.uid}_theme`);
+          document.body.classList.toggle("dark-theme", themePref === "dark");
 
-      switchScreen("mainScreen");
-      await initializeAuthenticatedAccount(user);
-      subscribeAllUsers();
-      subscribeChatList();
-      subscribeGroups();
-      subscribeStatuses();
-      subscribeIncomingCalls();
-      subscribeCallHistory();
-    } else {
-      switchScreen("authScreen");
-    }
+          switchScreen("mainScreen");
+          await initializeAuthenticatedAccount(user);
+          subscribeAllUsers();
+          subscribeChatList();
+          subscribeGroups();
+          subscribeStatuses();
+          subscribeIncomingCalls();
+          subscribeCallHistory();
+        } else {
+          cleanupAccountSession();
+          switchScreen("authScreen");
+        }
+      } catch (err) {
+        console.error("Initialization error handled safely:", err);
+        switchScreen("authScreen");
+      }
+    }, 3000); // সঠিক ৩ সেকেন্ড (৩০০০ মিলিপ্রেকেন্ড) স্প্ল্যাশ স্ক্রিন লোগো দেখাবে
   });
 });
