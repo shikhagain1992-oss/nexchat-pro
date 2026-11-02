@@ -3433,16 +3433,16 @@ function bindUIEvents() {
   }
 }
 
-// ================= INITIALIZATION WITH 3S SPLASH SCREEN & CRASH SAFETY =================
+// ================= INITIALIZATION WITH 5S SPLASH SCREEN & CRASH SAFETY =================
 document.addEventListener("DOMContentLoaded", () => {
   setupAuthUI();
   bindUIEvents();
 
-  // অ্যাপ ওপেন হওয়ার সাথে সাথেই স্প্ল্যাশ স্ক্রিন বা লোগো স্ক্রিন প্রদর্শন করা
+  // অ্যাপ ওপেন হওয়ার সাথে সাথেই স্প্ল্যাশ স্ক্রিন প্রদর্শন করা
   switchScreen("splashScreen");
 
   onAuthStateChanged(auth, async (user) => {
-    // ঠিক ৩ সেকেন্ড ডিলে দিয়ে ফায়ারবেস অথ স্টেট ও সেশন যাচাই করা (ক্র্যাশ রোধ করতে)
+    // ঠিক ৫ সেকেন্ড ডিলে দিয়ে ফায়ারবেস অথ স্টেট ও সেশন যাচাই করা
     setTimeout(async () => {
       try {
         if (!user || (activeAuthUid && user.uid !== activeAuthUid)) {
@@ -3469,6 +3469,6 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error("Initialization error handled safely:", err);
         switchScreen("authScreen");
       }
-    }, 3000); // সঠিক ৩ সেকেন্ড (৩০০০ মিলিপ্রেকেন্ড) স্প্ল্যাশ স্ক্রিন লোগো দেখাবে
+    }, 5000); // সঠিক ৫ সেকেন্ড (৫০০০ মিলিসেকেন্ড) স্প্ল্যাশ স্ক্রিন / লোগো দেখাবে
   });
 });
